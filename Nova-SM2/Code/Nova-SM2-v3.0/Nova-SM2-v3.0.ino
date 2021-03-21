@@ -1,28 +1,41 @@
 /*
- *   v3.0 RELEASE NOTES
- *   performance: 38% storage / 40% memory
+ *   NovaSM2 - a Spot-Micro clone
+ *   Version: 3.0
+ *   Version Date: 2021-03-12
+ *   
+ *   Author:  Chris Locke - cguweb@gmail.com
+ *   GitHub Project:  https://github.com/cguweb-com/Arduino-Projects/tree/main/Nova-SM2
+ *   Instructables Project: https://www.instructables.com/member/cguweb/instructables/
+ *   
+ *   RELEASE NOTES:
+ *      mega performance: 41% storage / 54% memory
  *
  *   DEV NOTES:
+ *      re-calibrate servos to balance Nova!! seems to be back-heavy
  *      x_axis: tweak pattern, adjusting use of move_steps to not near fall over backwards on startup
  *      finish tweaking left and right step
  *      finish forward step (w/ left, right, backwards!)
  *      write fixed speed / step walking routine
- *      fix standup routine (ie: tends to fall backward when coming off of knees or from sitting)
+ *      fix 'stay' routine (ie: tends to fall backward when coming off of knees or from sitting)
+ *      
 */
 
+#define VERSION 3.0
+
+//debug vars
 byte debug = 1;
 byte debug2 = 0;
 byte debug3 = 0;
 byte debug4 = 0;
 byte plotter = 0;
-byte plotter2 = 0;
-int debug_servo = 2;
+int debug_servo = 1;
 
+//test vars
 byte test_run = 0;
-int test_loops = 0;
+int test_loops = 1;
 
 int test_wake = 0;
-int test_sweep = 0;
+int test_sweep = 1;
 int test_sweep_ramp = 0;
 int test_march = 0;
 int test_march_forward = 0;
@@ -38,15 +51,16 @@ int test_pitch_body = 0;
 int test_roll = 0;
 int test_roll_body = 0;
 int test_wman = 0;
-int test_demo = 1;
+int test_demo = 0;
 int test_look_left = 0;
 int test_look_right = 0;
 
 //activate/deactivate devices
 byte pwm_active = 1;
-byte rgb_active = 1;
-byte ps2_active = 1;
+byte ps2_active = 0;
+byte serial_active = 1;
 byte mpu_active = 1;
+byte rgb_active = 1;
 byte oled_active = 0;
 byte pir_active = 0;
 byte uss_active = 0;  //test: PENDING
@@ -56,7 +70,7 @@ byte buzz_active = 1;
 byte melody_active = 0;
 
 //include motor setup vars
-#include "NovaServos/NovaServos.h"
+#include "NovaServos.h"
 
 //include supporting libraries
 #include <SPI.h>
@@ -71,7 +85,7 @@ byte melody_active = 0;
 //pwm controller
 Adafruit_PWMServoDriver pwm1 = Adafruit_PWMServoDriver(0x40);
 #define SERVO_FREQ 60
-#define OSCIL_FREQ 25000000 //never ever change this without expecting to change servo limits!!!
+#define OSCIL_FREQ 25000000 
 #define OE_PIN 3
 int pwm_oe = 0;
 const float min_spd = 96.0;
@@ -90,13 +104,21 @@ int x_dir = 0;
 int y_dir = 0;
 int z_dir = 0;
 byte use_ramp = 0;
-float ramp_spd = 0.10;
 float ramp_dist = 0.20;
+float ramp_spd = 5.00;
 
 
 //oled display
 Adafruit_SSD1306 display(-1);
 byte oled_in_use = 0;
+
+
+//on-board led
+#define LED1 13
+
+
+//buzzer
+#define BUZZ 11
 
 
 //rgb leds
@@ -115,14 +137,6 @@ int pattern_cnt = 0;
 int pattern_step = 0;
 int cur_rgb_val[3] = {0, 0, 0};
 int cur_rgb_val2[3] = {0, 0, 0};
-
-
-//on-board led
-#define LED1 13
-
-
-//buzzer
-#define BUZZ 11
 
 
 //pir sensor
@@ -144,7 +158,6 @@ int pir_wait = 0;
 unsigned int ussInterval = 50;
 unsigned long lastUSSUpdate = 0;
 byte uss_val = 0;
-float duration;
 float durationpulse;
 int distance_l;
 int prev_distance_l;
@@ -154,7 +167,7 @@ int distance_tolerance = 5;
 
 
 //mpu6050 sensor
-const int MPU = 0x68; //I2C address
+const int MPU = 0x68;
 unsigned int mpuInterval = 40;
 unsigned long lastMPUUpdate = 0;
 float AccX, AccY, AccZ;
@@ -184,21 +197,27 @@ int ps2_select = 1;
 int ps2_error = 0;
 
 
+//serial commands
+int ByteReceived;
+unsigned int serialInterval = 50;
+unsigned long lastSerialUpdate = 0;
+
+
 //amperage monitor
 #define AMP_PIN A1
 #define PWR_PIN 4
-unsigned int ampInterval = 3000;
+unsigned int ampInterval = 15000;
 unsigned long lastAmpUpdate = 0;
 int amp_cnt = 0;
 int amp_thresh = 10;
 int amp_warning = 0;
 int amp_loop = 1;
-float amp_limit = 8.5;
+float amp_limit = 6.5;
 
 
 //battery monitor
 #define BATT_MONITOR A2
-unsigned long batteryInterval = 3000;
+unsigned long batteryInterval = 30000;
 unsigned long lastBatteryUpdate = 0;
 int batt_cnt = 0;
 int batt_skip = 0;
@@ -259,7 +278,7 @@ byte move_yaw_x = 0;
 byte move_yaw_y = 0;
 byte move_yaw = 0;
 
-float step_weight_factor = 0;  //this sucks to have to do... re-attempt to balance nova better on center of gravity instead
+float step_weight_factor = 0;
 float step_height_factor = 1.25;
 
 
@@ -362,78 +381,70 @@ class AsyncServo {
     }
 
     void Update() {
+      //setup to move servo if active
       if (activeServo[servoID]) {
         if (servoPos[servoID] == targetPos[servoID]) {
           activeServo[servoID] = 0;
-          //servoDelay[servoID][1] = 0;
-          //servoDelay[servoID][0] = servoDelay[servoID][1];
-          if (servoSwitch[servoID]) {
-            servoSwitch[servoID] = 0;
-          } else {
-            servoSwitch[servoID] = 1;
-          }
         }
 
         if ((millis() - lastUpdate) > servoSpeed[servoID]) {
           lastUpdate = millis();
 
-            if (debug2 && servoID == debug_servo) {
-//              Serial.println("update");
-            }
-  
-            //interpolate servoRamp 
-            if (servoRamp[servoID][0] && servoRamp[servoID][1]) {
-              if (servoRamp[servoID][2] && servoRamp[servoID][3]) {  //ramp up start
-                servoSpeed[servoID] = servoRamp[servoID][2];
-                servoRamp[servoID][2] = 0;
-                servoRamp[servoID][3]--;
-                servoRamp[servoID][1]--;
-              } else if (!servoRamp[servoID][2] && servoRamp[servoID][3] && servoRamp[servoID][4]) {  //ramp up step
-                servoSpeed[servoID] -= servoRamp[servoID][4];
-                servoRamp[servoID][3]--;
-                servoRamp[servoID][1]--;
-                if (servoRamp[servoID][3] < 1) {  //ramp up end
-                  servoRamp[servoID][3] = 0;
-                  servoRamp[servoID][4] = 0;
-                }
-              } else if (servoRamp[servoID][5] && servoRamp[servoID][6] && servoRamp[servoID][1] <= servoRamp[servoID][6]) {  //ramp down start
-                servoSpeed[servoID] += servoRamp[servoID][7];
-                servoRamp[servoID][5] = 0;
-                servoRamp[servoID][6]--;
-                servoRamp[servoID][1]--;
-              } else if (!servoRamp[servoID][5] && servoRamp[servoID][6] && servoRamp[servoID][7]) {  //ramp down step
-                servoSpeed[servoID] += servoRamp[servoID][7];
-                servoRamp[servoID][6]--;
-                servoRamp[servoID][1]--;
-                if (servoRamp[servoID][6] < 1) {  //ramp down end
-                  servoRamp[servoID][6] = 0;
-                  servoRamp[servoID][7] = 0;
-                }
-              } else if (!servoRamp[servoID][2] && !servoRamp[servoID][3] && !servoRamp[servoID][4] && !servoRamp[servoID][5] && !servoRamp[servoID][6] && !servoRamp[servoID][7]) {  //ramp clear
-                for (int j = 0; j < 8; j++) {
-                  servoRamp[servoID][j] = 0;
-                }
-              } else if (servoRamp[servoID][6] && servoRamp[servoID][1]) {
-                servoRamp[servoID][1]--;
+          //interpolate servoRamp 
+          if (servoRamp[servoID][0] && servoRamp[servoID][1]) {
+            if (servoRamp[servoID][2] && servoRamp[servoID][3]) {  //ramp up start
+              servoSpeed[servoID] = servoRamp[servoID][2];
+              servoRamp[servoID][2] = 0;
+              servoRamp[servoID][3]--;
+              servoRamp[servoID][1]--;
+            } else if (!servoRamp[servoID][2] && servoRamp[servoID][3] && servoRamp[servoID][4]) {  //ramp up step
+              servoSpeed[servoID] -= servoRamp[servoID][4];
+              servoRamp[servoID][3]--;
+              servoRamp[servoID][1]--;
+              if (servoRamp[servoID][3] < 1) {  //ramp up end
+                servoRamp[servoID][3] = 0;
+                servoRamp[servoID][4] = 0;
               }
+            } else if (servoRamp[servoID][5] && servoRamp[servoID][6] && servoRamp[servoID][1] <= servoRamp[servoID][6]) {  //ramp down start
+              servoSpeed[servoID] += servoRamp[servoID][7];
+              servoRamp[servoID][5] = 0;
+              servoRamp[servoID][6]--;
+              servoRamp[servoID][1]--;
+            } else if (!servoRamp[servoID][5] && servoRamp[servoID][6] && servoRamp[servoID][7]) {  //ramp down step
+              servoSpeed[servoID] += servoRamp[servoID][7];
+              servoRamp[servoID][6]--;
+              servoRamp[servoID][1]--;
+              if (servoRamp[servoID][6] < 1) {  //ramp down end
+                servoRamp[servoID][6] = 0;
+                servoRamp[servoID][7] = 0;
+              }
+            } else if (!servoRamp[servoID][2] && !servoRamp[servoID][3] && !servoRamp[servoID][4] && !servoRamp[servoID][5] && !servoRamp[servoID][6] && !servoRamp[servoID][7]) {  //ramp clear
+              for (int j = 0; j < 8; j++) {
+                servoRamp[servoID][j] = 0;
+              }
+            } else if (servoRamp[servoID][6] && servoRamp[servoID][1]) {
+              servoRamp[servoID][1]--;
             }
+          }
   
-            if (debug2 && servoID == debug_servo) {
-//              Serial.print("sPos / sSpd \t");
-//              Serial.print(servoPos[servoID]);
-//              Serial.print(" / ");
-//              Serial.println(servoSpeed[servoID]);
-            } else if (plotter && servoID == debug_servo) {
-              Serial.print("sPos:");
-              Serial.print(servoPos[servoID]);
-              Serial.print("\t");
-              Serial.print("sSpd:");
-              Serial.println(servoSpeed[servoID]);
-            }
+          if (debug2 && servoID == debug_servo) {
+            Serial.print("sPos / sSpd \t");
+            Serial.print(servoPos[servoID]);
+            Serial.print(" / ");
+            Serial.println(servoSpeed[servoID]);
+          } else if (plotter && servoID == debug_servo) {
+            Serial.print("sPos:");
+            Serial.print(servoPos[servoID]);
+            Serial.print("\t");
+            Serial.print("sSpd:");
+            Serial.println(servoSpeed[servoID]);
+          }
 
 
-          if (!servoDelay[servoID][0]) {
-  
+          //move servo if not delaying
+          if (!servoDelay[servoID][0]) {  
+
+            //restrain targets to min/max limits
             if (servoLimit[servoID][0] > servoLimit[servoID][1]) {
               if (targetPos[servoID] > servoLimit[servoID][0]) {
                 targetPos[servoID] = servoLimit[servoID][0];
@@ -448,6 +459,7 @@ class AsyncServo {
               }
             }
 
+            //move servo in direction of leg
             if (servoPos[servoID] < targetPos[servoID]) {
               servoPos[servoID] += increment;
               driver->setPWM(channel, 0, servoPos[servoID]);
@@ -456,20 +468,30 @@ class AsyncServo {
               driver->setPWM(channel, 0, servoPos[servoID]);
             }
 
+            //check for end of steps
             servoStep[servoID]++;
             if (servoPos[servoID] == targetPos[servoID]) {
+              if (use_ramp) {
+                servoSpeed[servoID] = servoRamp[servoID][0];
+              }
               servoStep[servoID] = 0;
+
+              //Important! 
+              //this is the amp check that will catch locked / over-extended motors
               if (amp_active) amperage_check(0);
             }
           } else {
+            //count down delay, if set
             servoDelay[servoID][0]--;
           }
         }
       }
 
+      //setup to sweep servo if active
       if (activeSweep[servoID] && !activeServo[servoID]) {
         if (servoPos[servoID] == targetPos[servoID] && !servoSweep[servoID][3]) {
           activeSweep[servoID] = 0;
+          //switch direction
           if (servoSwitch[servoID]) {
             servoSwitch[servoID] = 0;
           } else {
@@ -489,10 +511,7 @@ class AsyncServo {
           }
 
           if (!servoSweep[servoID][4]) {
-            if (debug2 && servoID == debug_servo) {
-              Serial.println("sweep");
-            }
-  
+
             //interpolate servoRamp 
             if (servoRamp[servoID][0] && servoRamp[servoID][1]) {
               if (servoRamp[servoID][2] && servoRamp[servoID][3]) {  //ramp up start
@@ -543,6 +562,7 @@ class AsyncServo {
               Serial.println(servoSpeed[servoID]);
             }
 
+            //sweep servo
             if (servoPos[servoID] < targetPos[servoID]) {
               servoPos[servoID] += increment;
               if (debug2 && servoID == debug_servo) {
@@ -557,10 +577,12 @@ class AsyncServo {
               driver->setPWM(channel, 0, servoPos[servoID]);
             }
 
+            //change direction
             if (servoPos[servoID] == targetPos[servoID] && !servoSweep[servoID][2]) {
               servoSweep[servoID][2] = 1;
               targetPos[servoID] = servoSweep[servoID][0];
               if (use_ramp) {
+                servoSpeed[servoID] = servoRamp[servoID][0];
                 set_ramp(servoID, servoSpeed[servoID], 0, 0, 0, 0);
               }
               if (debug2 && servoID == debug_servo) {
@@ -570,7 +592,7 @@ class AsyncServo {
               servoSweep[servoID][2] = 0;
               servoSweep[servoID][3]--;
               if (servoSweep[servoID][3]) {
-                targetPos[servoID] = servoSweep[servoID][1];
+                targetPos[servoID] = servoSweep[servoID][0];
                 if (debug2 && servoID == debug_servo) {
                   Serial.print(F("\tforward inc: ")); Serial.print(increment);
                 }
@@ -579,11 +601,17 @@ class AsyncServo {
 
             servoStep[servoID]++;
             if (servoPos[servoID] == targetPos[servoID]) {
+              if (use_ramp) {
+                servoSpeed[servoID] = servoRamp[servoID][1];
+              }
               servoStep[servoID] = 0;
+
+              //Important! 
+              //this is the amp check that will catch locked / over-extended motors
               if (amp_active) amperage_check(0);
             }
           } else {
-            //delay
+            //count down delay, if set
             servoSweep[servoID][4]--;
           }
 
@@ -597,7 +625,7 @@ class AsyncServo {
 };
 
 
-//instantiate servo objects
+//instantiate 12 servo objects
 //coaxs
 AsyncServo s_RFC(&pwm1, RFC);
 AsyncServo s_LFC(&pwm1, LFC);
@@ -625,7 +653,8 @@ void setup() {
   delay(500); //allow ps2 and PWM hardware to powerup & connect
   if (debug) {
     Serial.println("\n===================================");
-    Serial.println("NOVA SM2 v3.0");
+    Serial.print("NOVA SM2 v");
+    Serial.println(VERSION);
     Serial.println("===================================");
   }
   randomSeed(analogRead(0));
@@ -790,6 +819,11 @@ void setup() {
   }
 
   if (debug) Serial.println("Ready!");
+  if (serial_active && debug) {
+    delay(1000);
+    Serial.println();
+    Serial.println("Type a command code or 'h' for help:");
+  }
 }
 
 
@@ -813,7 +847,7 @@ void loop() {
   s_RRT.Update();
   s_LRT.Update();
 
-  //moves
+  //moves check
   if (move_sequence) {
     run_sequence();
   } else if (move_x_axis) {
@@ -833,7 +867,7 @@ void loop() {
   } else if (move_forward) {
     step_forward(x_dir);
   } else if (move_backward) {
-//todo
+    step_backward(x_dir);
   } else if (move_left) {
     ramp_dist = 0.25;
     ramp_spd = 1.5;
@@ -880,6 +914,10 @@ void loop() {
     if (millis() - lastPS2Update > ps2Interval) ps2_check();
   }
 
+  if (serial_active) {
+    if (millis() - lastSerialUpdate > serialInterval) serial_check();
+  }
+
   if (rgb_active) {
     if (millis() - lastRGBUpdate > rgbInterval) rgb_check(pattern);
   }
@@ -911,10 +949,9 @@ void loop() {
     delay_sequences();
   }
 
-  if (test_run) {
+  if (test_run > 0) {
     if (test_run > 1) {
       test_run -= 1;
-      //      move_loops = 10;
       spd = 3;
       set_speed();
     }
@@ -951,7 +988,7 @@ void loop() {
 
     if (test_sweep) {
       if (!activeSweep[debug_servo]) {
-        spd = 13;
+        spd = 6;
         set_speed();
         servoSweep[debug_servo][0] = servoLimit[debug_servo][0];
         servoSweep[debug_servo][1] = servoLimit[debug_servo][1];
@@ -960,12 +997,13 @@ void loop() {
         targetPos[debug_servo] = servoSweep[debug_servo][1];
         activeSweep[debug_servo] = 1;
         use_ramp = 0;
+        test_loops -= 1;
       }
     }
 
     if (test_sweep_ramp) {
       if (!activeSweep[debug_servo]) {
-        spd = 13;
+        spd = 6;
         set_speed();
         servoSweep[debug_servo][0] = servoLimit[debug_servo][0];
         servoSweep[debug_servo][1] = servoLimit[debug_servo][1];
@@ -974,10 +1012,11 @@ void loop() {
         targetPos[debug_servo] = servoSweep[debug_servo][1];
         activeSweep[debug_servo] = 1;
   
-        ramp_dist = 0.2;
-        ramp_spd = 10.0;
+        ramp_dist = 0.15;
+        ramp_spd = 8.0;
         use_ramp = 1;
         set_ramp(debug_servo, servoSpeed[debug_servo], 0, 0, 0, 0);
+        test_loops -= 1;
       }
     }
 
@@ -1020,7 +1059,6 @@ void loop() {
       step_height_factor = 1.25;
       move_march = 1;
     }
-
 
     if (test_trot) {
       spd = 12;
@@ -1077,8 +1115,12 @@ void loop() {
 
     set_speed();
     start_stop = 1;
-    test_run -= 1;
+    if (!test_loops) {
+      test_run -= 1;
+    }
   }
+
+
 }
 
 
@@ -1228,8 +1270,6 @@ void ps2_check() {
             Serial.println("march");
           if (!move_march) {
             set_stop();
-//            spd = 12;
-//            set_speed();
             start_stop = 1;
             move_march = 1;
             if (oled_active) {
@@ -1256,6 +1296,7 @@ void ps2_check() {
               rgb_check(pattern);
             }
             
+            move_march = 1;
             spd = 12;
             set_speed();
             step_weight_factor = .2;
@@ -1304,8 +1345,7 @@ void ps2_check() {
         } else if (ps2_select == 3) {
         }
       }
-  
-  
+    
       if (ps2x.Button(PSB_PAD_LEFT)) {
         if (ps2_select == 1) {
           if (!move_left) {
@@ -1432,7 +1472,6 @@ void ps2_check() {
           }
         }
       }
-
 
       if (ps2x.Button(PSB_R1)) {
         if (ps2_select == 1) {
@@ -2077,9 +2116,6 @@ void get_mpu() {
 }
 
 void calculate_IMU_error() {
-  // We can call this funtion in the setup section to calculate the accelerometer and gyro data error. 
-  // From here we will get the error values used in the above equations printed on the Serial Monitor.
-  // Note that we should place the IMU flat in order to get the proper values, so that we then can the correct values
   // Read accelerometer values 200 times
   while (mpu_c < 200) {
     Wire.beginTransmission(MPU);
@@ -2140,8 +2176,8 @@ void amperage_check(int aloop) {
   for (int x = 0; x < 150; x++){ //Get 150 samples
     AcsValue = analogRead(AMP_PIN);     //Read current sensor values   
     Samples = Samples + AcsValue;  //Add samples together
-//millis this... can't have any delays!!
-    delay (3); // let ADC settle before next sample 3ms
+//millis this if possible... adds blocking delay to code!!
+    delay(3); // let ADC settle before next sample 3ms
   }
   AvgAcs=Samples/150.0;//Taking Average of Samples
   AcsValueF = (2.5 - (AvgAcs * (5.0 / 1024.0)) )/0.177;
@@ -2238,7 +2274,7 @@ void amperage_check(int aloop) {
 void battery_check() {
   int sensorValue = analogRead(BATT_MONITOR);
   batt_voltage = sensorValue * (5.00 / 1023.00) * 2.7; // Convert the reading values from 5v to 12V
-  batt_voltage += 1.07; // Account for voltage drop, adding it back
+  batt_voltage += 1.07; //account for voltage drop, adding it back
   if (debug4) {
     Serial.print("batt check: ");Serial.print(sensorValue); Serial.print(F(" / ")); Serial.println(batt_voltage);
   }
@@ -2258,7 +2294,7 @@ void battery_check() {
         pattern_cnt = (i+1)*1;
         pattern_int -= (i+1)*20;
         if (debug4) {
-          //Serial.print(batt_voltage); Serial.print(" - BATTERY LOW - WARNING #"); Serial.println(i);
+          Serial.print(batt_voltage); Serial.print(" - BATTERY LOW - WARNING #"); Serial.println(i);
         }
       }
     }
@@ -2393,54 +2429,7 @@ void set_ramp(int servo, float sp, float r1_spd, float r1_dist, float r2_spd, fl
     Serial.print("\t"); Serial.print(servoRamp[servo][5]);
     Serial.print("\t"); Serial.print(servoRamp[servo][6]);
     Serial.print("\t"); Serial.println(servoRamp[servo][7]);
-  }
-}
-
-void run_demo() {
-  if (!move_delay_sequences[0] && !move_delay_sequences[9]) {
-    ramp_dist = 0.2;
-    ramp_spd = 0.5;
-    use_ramp = 1;
-
-    move_demo = 1;
-
-    move_delays[0] = 300;
-    move_delay_sequences[0] = 15;
-    move_delays[1] = 300;
-    move_delay_sequences[1] = 14;
-    move_delays[2] = 1200;
-    move_delay_sequences[2] = 1;
-    move_delays[3] = 3000;
-    move_delay_sequences[3] = 2;
-    move_delays[4] = 900;
-    move_delay_sequences[4] = 3;
-    move_delays[5] = 900;
-    move_delay_sequences[5] = 5;
-    move_delays[6] = 1500;
-    move_delay_sequences[6] = 6;
-    move_delays[7] = 1500;
-    move_delay_sequences[7] = 7;
-    move_delays[8] = 1500;
-    move_delay_sequences[8] = 4;
-    
-    move_delays[9] = 900;
-    move_delay_sequences[9] = 13;
-
-    move_delays[10] = 1500;
-    move_delay_sequences[10] = 11;
-    
-    move_delays[11] = 1500;
-    move_delay_sequences[11] = 12;
-
-    move_delays[12] = 3000;
-    move_delay_sequences[12] = 8;
-    move_delays[13] = 6000;
-    move_delay_sequences[13] = 9;
-    move_delays[14] = 3000;
-    move_delay_sequences[14] = 10;
-    start_stop = 0;
-    delay_sequences();
-
+    Serial.println();
   }
 }
 
@@ -2543,6 +2532,158 @@ void set_speed() {
    Move Functions
    -------------------------------------------------------
 */
+//set pitch and roll axis from mpu data
+void set_axis(float roll_step, float pitch_step) {
+    float ar = abs(roll_step);
+    float ap = abs(pitch_step);
+
+    //check if oscillating, and on third, stop!
+    if (ar > (mroll_prev + mpu_oscill_thresh) || ar < (mroll_prev - mpu_oscill_thresh)) {
+      mpu_oscill_cnt--;
+      Serial.print("oscillate: ");
+      Serial.println(mpu_oscill_cnt);
+    } else {
+//      mpu_oscill_grace--;
+//      if (!mpu_oscill_grace) {
+//        mpu_oscill_grace = 3;
+        mpu_oscill_cnt = mpu_oscill_limit;
+//      }
+    }
+
+    for (int i = 0; i < TOTAL_SERVOS; i++) {
+      byte skip = 0;
+      float t = 0.0;
+      float f = 0.0;
+      if (is_tibia(i)) {
+        t = servoHome[i];
+      } else if (is_femur(i)) {
+        f = servoHome[i];
+      }
+
+      if (ar <= (mroll_prev + mpu_trigger_thresh) && ar >= (mroll_prev - mpu_trigger_thresh)) {
+        if (roll_step < 0) { //roll left
+          if (is_tibia(i)) {
+            t += ((abs(roll_step) * 0.65) * 4);
+          } else if (is_femur(i)) {
+            f -= ((abs(roll_step) * 0.4) * 4);
+          }
+        } else { //roll right
+          if (is_tibia(i)) {
+            t -= ((roll_step * 0.65) * 4);
+          } else if (is_femur(i)) {
+            f += ((roll_step * 0.4) * 4);
+          }
+        }
+      } else {
+        skip = 1;
+      }
+      mroll_prev = ar;
+
+      if (ap <= (mpitch_prev + mpu_trigger_thresh) || ap >= (mpitch_prev - mpu_trigger_thresh)) {
+        if (pitch_step < 0) { //pitch front down
+          if (is_tibia(i)) {
+            if (is_front_leg(i)) {
+              if (is_left_leg(i)) {
+                t -= ((abs(pitch_step) * 1.15) * 3);
+              } else {
+                t += ((abs(pitch_step) * 1.15) * 3);
+              }
+            } else {
+              if (is_left_leg(i)) {
+                t += ((abs(pitch_step) * 1.15) * 3);
+              } else {
+                t -= ((abs(pitch_step) * 1.15) * 3);
+              }
+            }
+          }
+        } else { //pitch front up
+          if (is_tibia(i)) {
+            if (is_front_leg(i)) {
+              if (is_left_leg(i)) {
+                t += ((abs(pitch_step) * 1.15) * 3);
+              } else {
+                t -= ((abs(pitch_step) * 1.15) * 3);
+              }
+            } else {
+              if (is_left_leg(i)) {
+                t -= ((abs(pitch_step) * 1.15) * 3);
+              } else {
+                t += ((abs(pitch_step) * 1.15) * 3);
+              }
+            }
+          }
+        }
+        mpitch_prev = pitch_step;
+      }
+      
+      if (!skip) {
+        if (is_tibia(i)) {
+          activeServo[i] = 1;
+          servoSpeed[i] = (7*spd_factor);
+          targetPos[i] = limit_target(i, t, 0);
+        } else if (is_femur(i)) {
+          activeServo[i] = 1;
+          servoSpeed[i] = (12*spd_factor);
+          targetPos[i] = limit_target(i, f, 0);
+        }
+        if (!mpu_oscill_cnt) {
+//Serial.println("oscill delay");      
+          mpu_oscill_cnt = mpu_oscill_limit;
+          delay(2000);
+        }
+      }
+    }
+
+}
+
+void run_demo() {
+  if (!move_delay_sequences[0] && !move_delay_sequences[9]) {
+    ramp_dist = 0.2;
+    ramp_spd = 0.5;
+    use_ramp = 1;
+
+    move_demo = 1;
+
+    move_delays[0] = 300;
+    move_delay_sequences[0] = 15;
+    move_delays[1] = 300;
+    move_delay_sequences[1] = 14;
+    move_delays[2] = 1200;
+    move_delay_sequences[2] = 1;
+    move_delays[3] = 3000;
+    move_delay_sequences[3] = 2;
+    move_delays[4] = 900;
+    move_delay_sequences[4] = 3;
+    move_delays[5] = 900;
+    move_delay_sequences[5] = 5;
+    move_delays[6] = 1500;
+    move_delay_sequences[6] = 6;
+    move_delays[7] = 1500;
+    move_delay_sequences[7] = 7;
+    move_delays[8] = 1500;
+    move_delay_sequences[8] = 4;
+    
+    move_delays[9] = 900;
+    move_delay_sequences[9] = 13;
+
+    move_delays[10] = 1500;
+    move_delay_sequences[10] = 11;
+    
+    move_delays[11] = 1500;
+    move_delay_sequences[11] = 12;
+
+    move_delays[12] = 3000;
+    move_delay_sequences[12] = 8;
+    move_delays[13] = 6000;
+    move_delay_sequences[13] = 9;
+    move_delays[14] = 3000;
+    move_delay_sequences[14] = 10;
+
+    start_stop = 0;
+    delay_sequences();
+  }
+}
+
 void set_stay() {
   for (int m = 0; m < TOTAL_SERVOS; m++) {
     activeSweep[m] = 0;
@@ -2737,111 +2878,6 @@ void set_kneel() {
   lastMoveDelayUpdate = millis();
 }
 
-//set pitch and roll axis from mpu data
-void set_axis(float roll_step, float pitch_step) {
-    float ar = abs(roll_step);
-    float ap = abs(pitch_step);
-
-    //check if oscillating, and on third, stop!
-    if (ar > (mroll_prev + mpu_oscill_thresh) || ar < (mroll_prev - mpu_oscill_thresh)) {
-      mpu_oscill_cnt--;
-      Serial.print("oscillate: ");
-      Serial.println(mpu_oscill_cnt);
-    } else {
-//      mpu_oscill_grace--;
-//      if (!mpu_oscill_grace) {
-//        mpu_oscill_grace = 3;
-        mpu_oscill_cnt = mpu_oscill_limit;
-//      }
-    }
-
-    for (int i = 0; i < TOTAL_SERVOS; i++) {
-      byte skip = 0;
-      float t = 0.0;
-      float f = 0.0;
-      if (is_tibia(i)) {
-        t = servoHome[i];
-      } else if (is_femur(i)) {
-        f = servoHome[i];
-      }
-
-      if (ar <= (mroll_prev + mpu_trigger_thresh) && ar >= (mroll_prev - mpu_trigger_thresh)) {
-        if (roll_step < 0) { //roll left
-          if (is_tibia(i)) {
-            t += ((abs(roll_step) * 0.65) * 4);
-          } else if (is_femur(i)) {
-            f -= ((abs(roll_step) * 0.4) * 4);
-          }
-        } else { //roll right
-          if (is_tibia(i)) {
-            t -= ((roll_step * 0.65) * 4);
-          } else if (is_femur(i)) {
-            f += ((roll_step * 0.4) * 4);
-          }
-        }
-      } else {
-        skip = 1;
-      }
-      mroll_prev = ar;
-
-      if (ap <= (mpitch_prev + mpu_trigger_thresh) || ap >= (mpitch_prev - mpu_trigger_thresh)) {
-        if (pitch_step < 0) { //pitch front down
-          if (is_tibia(i)) {
-            if (is_front_leg(i)) {
-              if (is_left_leg(i)) {
-                t -= ((abs(pitch_step) * 1.15) * 3);
-              } else {
-                t += ((abs(pitch_step) * 1.15) * 3);
-              }
-            } else {
-              if (is_left_leg(i)) {
-                t += ((abs(pitch_step) * 1.15) * 3);
-              } else {
-                t -= ((abs(pitch_step) * 1.15) * 3);
-              }
-            }
-          }
-        } else { //pitch front up
-          if (is_tibia(i)) {
-            if (is_front_leg(i)) {
-              if (is_left_leg(i)) {
-                t += ((abs(pitch_step) * 1.15) * 3);
-              } else {
-                t -= ((abs(pitch_step) * 1.15) * 3);
-              }
-            } else {
-              if (is_left_leg(i)) {
-                t -= ((abs(pitch_step) * 1.15) * 3);
-              } else {
-                t += ((abs(pitch_step) * 1.15) * 3);
-              }
-            }
-          }
-        }
-        mpitch_prev = pitch_step;
-      }
-      
-      if (!skip) {
-        if (is_tibia(i)) {
-          activeServo[i] = 1;
-          servoSpeed[i] = (7*spd_factor);
-          targetPos[i] = limit_target(i, t, 0);
-        } else if (is_femur(i)) {
-          activeServo[i] = 1;
-          servoSpeed[i] = (12*spd_factor);
-          targetPos[i] = limit_target(i, f, 0);
-        }
-        if (!mpu_oscill_cnt) {
-//Serial.println("oscill delay");      
-          mpu_oscill_cnt = mpu_oscill_limit;
-          delay(2000);
-        }
-      }
-    }
-
-}
-
-//x axis
 void x_axis() {
   if (!activeSweep[RRT]) {
     servoSpeed[LFF] = limit_speed((10 * spd_factor));
@@ -2923,7 +2959,6 @@ void x_axis() {
   }
 }
 
-//move_x
 void move_kx() {
   int fms = (move_steps_kx * 0.8);
   int tms = (move_steps_kx * 1.3);
@@ -2946,7 +2981,6 @@ void move_kx() {
   lastMoveDelayUpdate = millis();  
 }
 
-//y axis
 void y_axis() {
 
   if (!activeSweep[RRT]) {
@@ -3061,7 +3095,6 @@ void y_axis() {
   }
 }
 
-//move_y
 void move_ky() {
 
   int fms = (move_steps_ky * 0.8);
@@ -3085,7 +3118,6 @@ void move_ky() {
   lastMoveDelayUpdate = millis(); 
 }
 
-//roll
 void roll() {
   if (!activeSweep[RRF]) {
     servoSpeed[LFT] = limit_speed((10 * spd_factor));
@@ -3167,7 +3199,6 @@ void roll() {
   }
 }
 
-//roll body
 void roll_body() {
   if (!activeSweep[RRC]) {
     servoSpeed[LFC] = limit_speed((10 * spd_factor));
@@ -3214,7 +3245,6 @@ void roll_body() {
   }
 }
 
-//roll_x
 void roll_x() {
   update_sequencer(LF, LFC, spd, (servoHome[LFC] + move_steps_x), 0, 0);
   update_sequencer(LR, LRC, spd, (servoHome[LRC] + move_steps_x), 0, 0);
@@ -3227,15 +3257,14 @@ void roll_x() {
   lastMoveDelayUpdate = millis();  
 }
 
-//pitch
 void pitch(int xdir) {
   float sinc0 = .15;
   float sinc1 = 1.15;
 
   if (xdir < 0) {  //turn left
     xdir = abs(xdir);
-    servoStepMoves[RFC][0] = limit_target(RFC, (servoPos[RFC] - (xdir / 4)), 25);
-    servoStepMoves[RRC][0] = limit_target(RRC, (servoPos[RRC] - (xdir / 4)), 25);
+    servoStepMoves[RFC][0] = limit_target(RFC, (servoPos[RFC] + (xdir / 4)), 25);
+    servoStepMoves[RRC][0] = limit_target(RRC, (servoPos[RRC] + (xdir / 4)), 25);
     servoStepMoves[LFC][0] = 0;
     servoStepMoves[LRC][0] = 0;
   } else if (xdir > 0) {  //turn right
@@ -3320,7 +3349,6 @@ void pitch(int xdir) {
   }
 }
 
-//pitch body
 void pitch_body() {
   if (!activeSweep[RRF]) {
     servoSpeed[LFC] = limit_speed((68 * spd_factor));
@@ -3434,7 +3462,6 @@ void pitch_body() {
   }
 }
 
-//pitch_y
 void pitch_y() {
 
   int fms = (move_steps_y * 0.4);
@@ -3458,7 +3485,6 @@ void pitch_y() {
   lastMoveDelayUpdate = millis();  
 }
 
-//yaw
 void yaw() {
   int cms = (move_steps_yaw * 0.4);
   int fms = (move_steps_yaw * 0.3);
@@ -3513,7 +3539,6 @@ void yaw() {
   lastMoveDelayUpdate = millis();  
 }
 
-//yaw_x
 void yaw_x() {
   int cms = (move_steps_yaw_x * 0.9);
   int fms = (move_steps_yaw_x * 0.4);
@@ -3544,7 +3569,6 @@ void yaw_x() {
   lastMoveDelayUpdate = millis();  
 }
 
-//yaw_y
 void yaw_y() {
 
   int fms = (move_steps_yaw_y * 0.6);
@@ -3573,7 +3597,6 @@ void yaw_y() {
   lastMoveDelayUpdate = millis();  
 }
 
-//step_trot
 void step_trot(int xdir) {
   float sinc0 = .15;
   float sinc1 = 1.15;
@@ -3666,7 +3689,6 @@ void step_trot(int xdir) {
   }
 }
 
-//step forward
 void step_forward(int xdir) {
   int lturn = 0;
   int rturn = 0;
@@ -3782,6 +3804,10 @@ void step_forward(int xdir) {
     }
   }
 
+}
+
+void step_backward(int xdir) {
+//this is probably not needed, since backwards is just opposite of forwards
 }
 
 void look_left() {
@@ -4686,6 +4712,7 @@ void funplay() {
     if (buzz_active) {
       play_phrases();
     }
+    move_funplay = 0;
     set_stop_active();
     delay(3000);
   }
@@ -4775,8 +4802,10 @@ void run_sequence() {
 
 void delay_sequences() {
   int moved = 0;
+  int sequence_cnt = 16;
+
   if (!start_stop) {
-    for (int i = 0; i < 16; i++) {
+    for (int i = 0; i < sequence_cnt; i++) {
       if (move_delay_sequences[i]) {
         moved = 1;
         if (move_delay_sequences[i] == 1) {
@@ -4923,41 +4952,41 @@ void delay_sequences() {
       move_demo = 0;
       moveDelayInterval = 0;
 
-        use_ramp = 0;
-        spd = 5;
-        set_speed();
+      use_ramp = 0;
+      spd = 5;
+      set_speed();
 
-        servoSweep[RFC][0] = servoHome[RFC];
-        servoSweep[RFC][1] = servoLimit[RFC][0];
-        servoSweep[RFC][2] = 0;
-        servoSweep[RFC][3] = 7;
-        targetPos[RFC] = servoSweep[RFC][1];
-        activeSweep[RFC] = 1;
+      servoSweep[RFC][0] = servoHome[RFC];
+      servoSweep[RFC][1] = servoLimit[RFC][0];
+      servoSweep[RFC][2] = 0;
+      servoSweep[RFC][3] = 7;
+      targetPos[RFC] = servoSweep[RFC][1];
+      activeSweep[RFC] = 1;
 
-        servoSweep[LFC][0] = servoHome[LFC];
-        servoSweep[LFC][1] = servoLimit[LFC][0];
-        servoSweep[LFC][2] = 0;
-        servoSweep[LFC][3] = 7;
-        targetPos[LFC] = servoSweep[LFC][1];
-        activeSweep[LFC] = 1;
+      servoSweep[LFC][0] = servoHome[LFC];
+      servoSweep[LFC][1] = servoLimit[LFC][0];
+      servoSweep[LFC][2] = 0;
+      servoSweep[LFC][3] = 7;
+      targetPos[LFC] = servoSweep[LFC][1];
+      activeSweep[LFC] = 1;
 
-        servoSweep[RFT][0] = servoHome[RFT];
-        servoSweep[RFT][1] = servoLimit[RFT][0];
-        servoSweep[RFT][2] = 0;
-        servoSweep[RFT][3] = 3;
-        targetPos[RFT] = servoSweep[RFT][1];
-        activeSweep[RFT] = 1;
+      servoSweep[RFT][0] = servoHome[RFT];
+      servoSweep[RFT][1] = servoLimit[RFT][0];
+      servoSweep[RFT][2] = 0;
+      servoSweep[RFT][3] = 3;
+      targetPos[RFT] = servoSweep[RFT][1];
+      activeSweep[RFT] = 1;
 
-        servoSweep[LFT][0] = servoHome[LFT];
-        servoSweep[LFT][1] = servoLimit[LFT][0];
-        servoSweep[LFT][2] = 0;
-        servoSweep[LFT][3] = 3;
-        targetPos[LFT] = servoSweep[LFT][1];
-        activeSweep[LFT] = 1;
+      servoSweep[LFT][0] = servoHome[LFT];
+      servoSweep[LFT][1] = servoLimit[LFT][0];
+      servoSweep[LFT][2] = 0;
+      servoSweep[LFT][3] = 3;
+      targetPos[LFT] = servoSweep[LFT][1];
+      activeSweep[LFT] = 1;
 
-        move_funplay = 1;
-        if (debug)
-          Serial.print("move funplay");
+      move_funplay = 1;
+      if (debug)
+        Serial.print("move funplay");
 
       if (debug) {
         Serial.println("\treset DS");
@@ -5100,13 +5129,17 @@ int pwm_to_degrees(int pulse_wide, int mxw, int mnw, int rng) {
    -------------------------------------------------------
 */
 void print_command(int cmd) {
-  //void print_command(uint8_t *buf) {
-  //char *senddata="none";
   display.clearDisplay();
   display.setTextSize(2);
   display.setTextColor(WHITE);
   display.setCursor(0, 0);
-  if (cmd == 1) {
+  if (cmd == 0) {
+    display.println("Testing"); //test
+    display.setTextSize(3);
+    display.setTextColor(WHITE);
+    display.setCursor(0, 12);
+    display.println("OLED!"); //test
+  } else if (cmd == 1) {
     display.println("Grrrrrrr!"); //wake
   } else if (cmd == 2) {
     display.println("Stay!"); //stay
@@ -5123,6 +5156,341 @@ void print_command(int cmd) {
   }
   display.display();
   //  display.clearDisplay();
+}
+
+
+
+/*
+   -------------------------------------------------------
+   Serial Commands
+   -------------------------------------------------------
+*/
+void serial_check() {
+  if (serial_active && Serial.available() > 0) {
+    ByteReceived = Serial.read();
+//    Serial.print(ByteReceived);Serial.print("\t");
+//    Serial.print(ByteReceived, HEX);Serial.print("\t");
+//    Serial.println(char(ByteReceived));
+
+
+    set_stop();
+    switch (ByteReceived) {
+      case '0':
+        Serial.println("stop!");
+        set_stop_active();
+        set_home();
+        break;    
+      case 91:
+        Serial.println("move_steps -5");
+        if (move_steps > move_steps_min) {
+          move_steps -= 2;
+        }
+        break;
+      case 93:
+        Serial.println("move_steps +5");
+        if (move_steps < move_steps_max) {
+          move_steps += 2;
+        }
+        break;
+      case 59:
+        Serial.println("y_dir -5");
+        if (y_dir > move_y_steps[0]) {
+          y_dir -= 2;
+        }
+        Serial.print("-y_dir ");Serial.println(y_dir);
+        break;
+      case 39:
+        Serial.println("y_dir +5");
+        if (y_dir < move_y_steps[1]) {
+          y_dir += 2;
+        }
+        Serial.print("+y_dir ");Serial.println(y_dir);
+        break;
+      case 46:
+        Serial.println("x_dir -5");
+        if (x_dir > move_x_steps[0]) {
+          x_dir -= 2;
+        }
+        Serial.print("-x_dir ");Serial.println(x_dir);
+        break;
+      case 47:
+        if (x_dir < move_x_steps[1]) {
+          x_dir += 2;
+        }
+        Serial.print("+x_dir ");Serial.println(x_dir);
+        break;
+      case '1':
+        Serial.println("set speed 1");
+        spd = 1;
+        set_speed();
+        break;
+      case '2':
+        Serial.println("set speed 5");
+        spd = 5;
+        set_speed();
+        break;
+      case '3':
+        Serial.println("set speed 15");
+        spd = 15;
+        set_speed();
+        break;
+      case '4':
+        Serial.println("set speed 30");
+        spd = 30;
+        set_speed();
+        break;
+      case 'o':
+        if (oled_active) {
+          Serial.println("test OLED");
+          print_command(0);
+        }
+        break;
+      case 'd':
+        Serial.println("demo");
+        run_demo();
+        break;
+      case 't':
+        Serial.println("trot");
+        move_steps = 30;
+        x_dir = 0;
+        move_trot = 1;
+        break;
+      case 'm':
+        Serial.println("march");
+        spd = 32;
+        set_speed();
+        y_dir = 0;
+        x_dir = 0;
+        step_height_factor = 1.25;
+        move_march = 1;
+        break;
+      case 'f':
+        Serial.println("march_forward");
+        spd = 32;
+        set_speed();
+        y_dir = 10;
+        x_dir = 0;
+        step_height_factor = 1.25;
+        move_march = 1;
+        break;
+      case 'b':
+        Serial.println("march_backward");
+        spd = 32;
+        set_speed();
+        y_dir = -10;
+        x_dir = 0;
+        step_height_factor = 1.25;
+        move_march = 1;
+        break;
+      case 's':
+        Serial.println("stay");
+        set_stay();
+        break;
+      case 'i':
+        Serial.println("sit");
+        set_sit();
+        break;
+      case 'k':
+        Serial.println("kneel");
+        set_kneel();
+        break;
+      case 'c':
+        Serial.println("crouch");
+         set_crouch();
+        break;
+      case 'l':
+        Serial.println("lay");
+        set_lay();
+        break;
+      case 'r':
+        Serial.println("roll");
+        move_steps = 30;
+        x_dir = 0;
+        move_roll = 1;
+        break;
+      case 'p':
+        Serial.println("pitch");
+        move_steps = 30;
+        x_dir = 0;
+        move_pitch = 1;
+        break;
+      case 'q':
+        Serial.println("roll_body");
+        move_steps = 30;
+        x_dir = 0;
+        move_roll_body = 1;
+        break;
+      case 'n':
+        Serial.println("pitch_body");
+        move_steps = 30;
+        x_dir = 0;
+        move_pitch_body = 1;
+        break;
+      case 'w':
+        Serial.println("wman");
+        spd = 3;
+        set_speed();
+        move_wman = 1;
+        break;
+      case 'y':
+        Serial.println("y_axis");
+        move_y_axis = 1;
+        y_axis();
+        break;
+      case 'x':
+        Serial.println("x_axis");
+        move_x_axis = 1;
+        x_axis();
+        break;
+      case 'u':
+        Serial.println("look_left");
+        spd = 1;
+        start_stop = 1;
+        move_loops = 1;
+        move_steps = 50;
+        move_look_left = 1;
+        break;
+      case 'j':
+        Serial.println("look_right");
+        spd = 1;
+        start_stop = 1;
+        move_loops = 1;
+        move_steps = 50;
+        move_look_right = 1;
+        break;
+      case 'a':
+        Serial.println("funplay");
+        move_funplay = 1;
+        break;
+      case '5':
+        Serial.println("sweep tibias");
+        use_ramp = 0;
+        for (int i = 0; i < TOTAL_SERVOS; i++) {
+          if (is_tibia(i)) {
+            servoSweep[i][0] = servoLimit[i][0];
+            servoSweep[i][1] = servoLimit[i][1];
+            servoSweep[i][2] = 0;
+            servoSweep[i][3] = 1;
+            targetPos[i] = servoSweep[i][1];
+            activeSweep[i] = 1;
+          }
+        }
+        break;
+      case '6':
+        Serial.println("ramp sweep tibia");
+        use_ramp = 1;
+        for (int i = 0; i < TOTAL_SERVOS; i++) {
+          if (is_tibia(i)) {
+            servoSweep[i][0] = servoLimit[i][0];
+            servoSweep[i][1] = servoLimit[i][1];
+            servoSweep[i][2] = 0;
+            servoSweep[i][3] = 1;
+            targetPos[i] = servoSweep[i][1];
+            activeSweep[i] = 1;
+            set_ramp(i, servoSpeed[i], 0, 0, 0, 0);
+          }
+        }
+        break;
+      case '7':
+        Serial.println("sweep femurs");
+        use_ramp = 0;
+        for (int i = 0; i < TOTAL_SERVOS; i++) {
+          if (is_femur(i)) {
+            servoSweep[i][0] = servoLimit[i][0];
+            servoSweep[i][1] = servoLimit[i][1];
+            servoSweep[i][2] = 0;
+            servoSweep[i][3] = 1;
+            targetPos[i] = servoSweep[i][1];
+            activeSweep[i] = 1;
+          }
+        }
+        break;
+      case '8':
+        Serial.println("ramp sweep femur");
+        use_ramp = 1;
+        for (int i = 0; i < TOTAL_SERVOS; i++) {
+          if (is_femur(i)) {
+            servoSweep[i][0] = servoLimit[i][0];
+            servoSweep[i][1] = servoLimit[i][1];
+            servoSweep[i][2] = 0;
+            servoSweep[i][3] = 1;
+            targetPos[i] = servoSweep[i][1];
+            activeSweep[i] = 1;
+            set_ramp(i, servoSpeed[i], 0, 0, 0, 0);
+          }
+        }
+        break;
+      case '9':
+        Serial.println("sweep coaxes");
+        use_ramp = 0;
+        for (int i = 0; i < TOTAL_SERVOS; i++) {
+          if (!is_femur(i) && !is_tibia(i)) {
+            servoSweep[i][0] = servoLimit[i][0];
+            servoSweep[i][1] = servoLimit[i][1];
+            servoSweep[i][2] = 0;
+            servoSweep[i][3] = 1;
+            targetPos[i] = servoSweep[i][1];
+            activeSweep[i] = 1;
+          }
+        }
+        break;
+      
+      case 'h':
+        Serial.println();
+        Serial.println("\t-----------------------------------------");
+        Serial.println("\t|\tCODE\tCOMMAND\t\t\t|");
+        Serial.println("\t-----------------------------------------");
+        Serial.println("\t|\t0\tstop!\t\t\t|");
+        Serial.println("\t|\t1\tset speed 1\t\t|");
+        Serial.println("\t|\t2\tset speed 5\t\t|");
+        Serial.println("\t|\t3\tset speed 15\t\t|");
+        Serial.println("\t|\t4\tset speed 30\t\t|");
+        Serial.println();
+        Serial.println("\t|\t5\tsweep tibias\t\t|");
+        Serial.println("\t|\t6\tramp sweep tibias\t|");
+        Serial.println("\t|\t7\tsweep femurs\t\t|");
+        Serial.println("\t|\t8\tramp sweep femurs\t|");
+        Serial.println("\t|\t9\tsweep coaxes\t\t|");
+        Serial.println();
+        Serial.println("\t|\tt\ttrot\t\t\t|");
+        Serial.println("\t|\tm\tmarch\t\t\t|");
+        Serial.println("\t|\tf\tmarch_forward\t\t|");
+        Serial.println("\t|\tb\tmarch_backward\t\t|");
+        Serial.println();
+        Serial.println("\t|\ts\tstay\t\t\t|");
+        Serial.println("\t|\ti\tsit\t\t\t|");
+        Serial.println("\t|\tk\tkneel\t\t\t|");
+        Serial.println("\t|\tc\tcrouch\t\t\t|");
+        Serial.println("\t|\tl\tlay\t\t\t|");
+        Serial.println();
+        Serial.println("\t|\tr\troll\t\t\t|");
+        Serial.println("\t|\tp\tpitch\t\t\t|");
+        Serial.println("\t|\tq\troll_body\t\t|");
+        Serial.println("\t|\tn\tpitch_body\t\t|");
+        Serial.println("\t|\ty\ty_axis\t\t\t|");
+        Serial.println("\t|\tx\tx_axis\t\t\t|");
+        Serial.println();
+        Serial.println("\t|\tw\twman\t\t\t|");
+        Serial.println("\t|\tu\tlook_left\t\t|");
+        Serial.println("\t|\tj\tlook_right\t\t|");
+        Serial.println("\t|\td\tdemo\t\t\t|");
+        Serial.println("\t|\ta\tfunplay\t\t\t|");
+        Serial.println();
+        Serial.println("\t|\t[\tmove_steps -2\t\t|");
+        Serial.println("\t|\t]\tmove_steps +2\t\t|");
+        Serial.println("\t|\t;\ty_dir -2\t\t|");
+        Serial.println("\t|\t'\ty_dir +2\t\t|");
+        Serial.println("\t|\t.\tx_dir -2\t\t|");
+        Serial.println("\t|\t/\tx_dir +2\t\t|");
+        Serial.println();
+        Serial.println("\t|\to\ttest OLED\t\t|");
+        Serial.println("\t|\th\thelp\t\t\t|");
+        Serial.println("\t-----------------------------------------");
+        Serial.println();
+        Serial.println("Type a command code or 'h' for help:");
+        break;
+    }
+  }
 }
 
 
