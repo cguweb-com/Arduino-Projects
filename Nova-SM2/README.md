@@ -1,1 +1,1 @@
-# Nova-SM
+# Nova-SM2
