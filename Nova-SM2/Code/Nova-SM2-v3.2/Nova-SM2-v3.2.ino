@@ -1,54 +1,60 @@
 /*
- *   NovaSM2 - a Spot-Micro clone
- *   Version: 3.1
- *   Version Date: 2021-03-21
+ *   NovaSM2 - a Spot-Mini Micro clone
+ *   Version: 3.2
+ *   Version Date: 2021-03-31
  *   
  *   Author:  Chris Locke - cguweb@gmail.com
  *   GitHub Project:  https://github.com/cguweb-com/Arduino-Projects/tree/main/Nova-SM2
  *   Instructables Project: https://www.instructables.com/member/cguweb/instructables/
  *   
  *   RELEASE NOTES:
- *      mega performance: 43% storage / 55% memory
- *      renamed some AsyncServo properties
- *      improved oled performance
- *      removed test_run (use serial commands instead)
+ *      Arduino mega performance: 42% storage / 57% memory
+ *      commented code for github release
+ *      updated NovaServos after recalibrating servos
+ *      added serial commands for testing servos / legs
  *
  *   DEV NOTES:
- *      re-calibrate servos to balance Nova!! seems to be back-heavy
+ *      BUG: during testing routines, on abrupt change of routine, ramping hangs, stepping every +/-1000ms
+ *      re-calibrate servo home positions to balance Nova's COG!! seems to be back-heavy
  *      x_axis: tweak pattern, adjusting use of move_steps to not near fall over backwards on startup
- *      finish tweaking left and right step
+ *      finish tweaking left and right stepping
  *      finish forward step (w/ left, right, backwards!)
  *      write a stable fixed speed / step walking routine
- *      fix 'stay' routine (ie: tends to fall backward when coming off of knees or from sitting)
- *      
+ *      fix 'stay' routine (ie: tends to fall backward when coming off of kneel or sit positions into stay)
+ *      see DEV NOTES in code comments for more bugs/tasks
 */
 
-#define VERSION 3.1
+//set Nova SM2 version
+#define VERSION 3.2
 
-//debug vars
-byte debug = 1;
-byte debug2 = 0;
-byte debug3 = 0;
-byte debug4 = 0;
-byte plotter = 0;
-int debug_servo = 1;
+//debug vars for displaying operation runtime data for debugging
+const byte debug = 1;
+const byte debug2 = 0;
+const byte debug3 = 0;
+const byte debug4 = 0;
+const byte plotter = 0;
+
+byte debug_leg = 0;               //default debug leg (3 servos) (changed by serial command input)
+int debug_servo = 0;              //default debug servo (changed by serial command input)
+const int debug_loops = 3;        //default loops for debug movements
+int debug_loops2 = 3;             //movement decremented loop
+int debug_spd = 10;               //default speed for debug movements
 
 //activate/deactivate devices
-byte pwm_active = 1;
-byte ps2_active = 1;
-byte serial_active = 1;
-byte mpu_active = 0;
-byte rgb_active = 1;
-byte oled_active = 1;
-byte pir_active = 0;
-byte uss_active = 0;  //test: PENDING
-byte amp_active = 0;  //test: PENDING
-byte batt_active = 0;
-byte buzz_active = 1;
-byte melody_active = 0;
+byte pwm_active = 1;              //activate pwm controller / servos
+byte ps2_active = 0;              //activate PS2 remote control 
+byte serial_active = 1;           //activate serial monitor command input
+byte mpu_active = 0;              //activate MPU6050 
+byte rgb_active = 1;              //activate RGB modules
+byte oled_active = 0;             //activate OLED display
+byte pir_active = 0;              //activate PIR motion sensor
+byte uss_active = 0;              //activate Ultra-Sonic sensors
+byte amp_active = 0;              //activate amperate monitoring
+byte batt_active = 1;             //activate battery level monitoring
+byte buzz_active = 1;             //activate simple tone sounds
+byte melody_active = 0;           //activate melodic tone sounds
 
-//include motor setup vars
-#include "NovaServos.h"
+#include "NovaServos.h"           //include motor setup vars and data arrays
 
 //include supporting libraries
 #include <SPI.h>
@@ -62,28 +68,28 @@ byte melody_active = 0;
 
 //pwm controller
 Adafruit_PWMServoDriver pwm1 = Adafruit_PWMServoDriver(0x40);
-#define SERVO_FREQ 60
-#define OSCIL_FREQ 25000000 
-#define OE_PIN 3
-int pwm_oe = 0;
-const float min_spd = 96.0;
-const float max_spd = 1.0;
+#define SERVO_FREQ 60             //CAUTION: do not change this once calibrated to servos!
+#define OSCIL_FREQ 25000000       //CAUTION: do not change this once calibrated to servos!
+#define OE_PIN 3                  //PWM Output Enable pin
+byte pwm_oe = 0;                  //boolean control for enable / disable output
+const float min_spd = 96.0;       //min is higher than max, since this is the time increment delay between servo calls 
+const float max_spd = 1.0;        //maximum, fastest speed
 float default_spd = 13.0;
 float spd = default_spd;
+float spd_factor = 1.0;           //ratio factor used in movements
 const float min_spd_factor = 5.0;
 const float max_spd_factor = 0.5;
-float spd_factor = 1.0;
 float spd_c;
 float spd_f;
 float spd_t;
-byte start_stop = 0;
-byte step_start = 0;
+byte start_stop = 0;              //deprecated: boolean to check if robot is doing anything
+byte step_start = 0;              //boolean to check if sequenced steps are running
 int x_dir = 0;
 int y_dir = 0;
 int z_dir = 0;
-byte use_ramp = 0;
-float ramp_dist = 0.20;
-float ramp_spd = 5.00;
+byte use_ramp = 0;                //boolean to enable / disable ramping function
+float ramp_dist = 0.20;           //ramp percentage distance from each end of travel (ex: 0.20 ramps up from 0-20% of travel, then ramps down 80-100% of travel)
+float ramp_spd = 5.00;            //default ramp speed multiplier
 
 
 //oled display
@@ -91,11 +97,11 @@ float ramp_spd = 5.00;
 #define SCREEN_HEIGHT 64
 #define OLED_RESET -1
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
-byte oled_in_use = 0;
+byte oled_in_use = 0;             //boolean to check if OLED is being used
 
 
 //buzzer
-#define BUZZ 11
+#define BUZZ 11                   //piezo buzzer pin
 
 
 //rgb leds
@@ -108,12 +114,12 @@ int rgb_del = 256;
 int current_led = 0;
 int fadeStep = 0;
 int fade_steps = 400;
-int pattern = 0;
-int pattern_int = 500;
-int pattern_cnt = 0;
+int pattern = 0;                  //set which light pattern is used
+int pattern_int = 500;            //set pattern delay between
+int pattern_cnt = 0;              //set number of loops of pattern
 int pattern_step = 0;
-int cur_rgb_val[3] = {0, 0, 0};
-int cur_rgb_val2[3] = {0, 0, 0};
+int cur_rgb_val1[3] = {0, 0, 0};  //set color of left lights
+int cur_rgb_val2[3] = {0, 0, 0};  //set color of right lights
 
 
 //pir sensor
@@ -136,11 +142,11 @@ unsigned int ussInterval = 50;
 unsigned long lastUSSUpdate = 0;
 byte uss_val = 0;
 float durationpulse;
-int distance_l;
-int prev_distance_l;
-int distance_r;
-int prev_distance_r;
-int distance_tolerance = 5;
+int distance_tolerance = 5;           //threshold before alarm triggers
+int distance_l;                       //current distance from left sensor
+int prev_distance_l;                  //previous distance of left sensor to prevent false positives
+int distance_r;                       //current distance from right sensor
+int prev_distance_r;                  //previous distance of right sensor to prevent false positives
 
 
 //mpu6050 sensor
@@ -153,13 +159,17 @@ float accAngleX, accAngleY, gyroAngleX, gyroAngleY, gyroAngleZ;
 float mroll, mpitch, myaw;
 float mroll_prev, mpitch_prev, myaw_prev;
 float mpu_trigger_thresh = 0.1;
+float AccErrorX, AccErrorY, GyroErrorX, GyroErrorY, GyroErrorZ;
+float elapsedTime, currentTime, previousTime;
+int mpu_c = 0;
+
+//DEV NOTE: these are used for an experimental oscillation prevention check, but really, a PID controller
+//          should researched and coded to replace this messy, unreliable solution
+//
 float mpu_oscill_thresh = 3.0;
 int mpu_oscill_grace = 3;
 int mpu_oscill_limit = 3;
 int mpu_oscill_cnt = mpu_oscill_limit;
-float AccErrorX, AccErrorY, GyroErrorX, GyroErrorY, GyroErrorZ;
-float elapsedTime, currentTime, previousTime;
-int mpu_c = 0;
 
 
 //PS2 controller
@@ -170,7 +180,7 @@ int mpu_c = 0;
 PS2X ps2x;
 unsigned int ps2Interval = 50;
 unsigned long lastPS2Update = 0;
-int ps2_select = 1;
+int ps2_select = 1;               //sets default button set
 int ps2_error = 0;
 
 
@@ -181,29 +191,29 @@ unsigned long lastSerialUpdate = 0;
 
 
 //amperage monitor
-#define AMP_PIN A1
+#define AMP_PIN A2
 #define PWR_PIN 4
 unsigned int ampInterval = 15000;
 unsigned long lastAmpUpdate = 0;
 int amp_cnt = 0;
-int amp_thresh = 10;
-int amp_warning = 0;
-int amp_loop = 1;
-float amp_limit = 6.5;
+int amp_thresh = 10;            //loop count for consecutive amperage alarms to prevent false positives
+int amp_warning = 0;            //current alarm warning level
+int amp_loop = 1;               //if warning level set, this changes accordingly to prevent false positives
+float amp_limit = 6.5;          //aperage draw limit before triggering alarms
 
 
 //battery monitor
-#define BATT_MONITOR A2
-unsigned long batteryInterval = 30000;
+#define BATT_MONITOR A1
+unsigned long batteryInterval = 60000;
 unsigned long lastBatteryUpdate = 0;
 int batt_cnt = 0;
 int batt_skip = 0;
-float batt_voltage = 11.1; 
-float batt_voltage_prev = 11.1; 
-float batt_levels[4] = {10.9, 10.7, 10.5, 10.4};
+float batt_voltage = 11.4;                          //fully charged battery nominal voltage
+float batt_voltage_prev = 11.4;                     //comparison voltage to prevent false positives
+float batt_levels[4] = {10.9, 10.7, 10.5, 10.4};    //voltage drop alarms levels(4)
 
 
-//moving vars
+//movement vars for steps, delays, loops, sequencing, etc
 unsigned long lastMoveDelayUpdate = millis();
 unsigned int moveDelayInterval = 0;
 int move_delays[16] = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
@@ -223,25 +233,27 @@ float move_steps_yaw = 0;
 float move_steps_kx = 0;
 float move_steps_ky = 0;
 float move_steps_alt = 0;
-int move_c_steps[2] = { -50, 50};
-int move_f_steps[2] = { -200, 200};
-int move_t_steps[2] = { -200, 200};
-int move_x_steps[2] = { -30, 30};
-int move_y_steps[2] = { -150, 150};
-int move_y_axis = 0;
-int move_x_axis = 0;
-int move_roll = 0;
-int move_roll_body = 0;
-int move_pitch = 0;
-int move_pitch_body = 0;
-int move_trot = 0;
-int move_forward = 0;
-int move_backward = 0;
-int move_left = 0;
-int move_right = 0;
-int move_march = 0;
-int move_wake = 0;
-int move_sequence = 0;
+int move_c_steps[2] = {-50, 50};
+int move_f_steps[2] = {-200, 200};
+int move_t_steps[2] = {-200, 200};
+int move_x_steps[2] = {-30, 30};
+int move_y_steps[2] = {-150, 150};
+
+//booleans to control / monitor movement routine execution
+byte move_y_axis = 0;
+byte move_x_axis = 0;
+byte move_roll = 0;
+byte move_roll_body = 0;
+byte move_pitch = 0;
+byte move_pitch_body = 0;
+byte move_trot = 0;
+byte move_forward = 0;
+byte move_backward = 0;
+byte move_left = 0;
+byte move_right = 0;
+byte move_march = 0;
+byte move_wake = 0;
+byte move_sequence = 0;
 byte move_demo = 0;
 byte move_wman = 0;
 byte move_funplay = 0;
@@ -254,12 +266,15 @@ byte move_kin_y = 0;
 byte move_yaw_x = 0;
 byte move_yaw_y = 0;
 byte move_yaw = 0;
+byte move_servo = 0;
+byte move_leg = 0;
 
-float step_weight_factor = 0;
+//deprecated: vars used in attempt to compensate for uncalibrated front-to-back center of gravity
+float step_weight_factor = 0;           
 float step_height_factor = 1.25;
 
 
-//spotmicro bmp
+//spotmicro bmp for oled
 const unsigned char smbmp [] PROGMEM = {
   // 'spot, 128x64px
   0x00, 0x00, 0x00, 0x00, 0x00, 0x3f, 0xc0, 0x00, 0x0e, 0x00, 0x01, 0xff, 0xfc, 0x00, 0x00, 0x00,
@@ -332,6 +347,7 @@ const unsigned char smbmp [] PROGMEM = {
 /*
    -------------------------------------------------------
    Function Prototypes
+    :required for functions executed from servo class ( I know, I know, poor OOP design calling functions outside of a class ;p )
    -------------------------------------------------------
 */
 void set_ramp(int servo, float sp, float r1_spd, float r1_dist, float r2_spd, float r2_dist);
@@ -340,30 +356,36 @@ void amperage_check(int aloop);
 
 /*
    -------------------------------------------------------
-   AsyncServo Class : non-blocking control of PWM servos
+   AsyncServo Class
+    :non-blocking control of PWM servos for all steps, movements, and sequences
    -------------------------------------------------------
 */
 class AsyncServo {
-    Adafruit_PWMServoDriver *driver;
-    int pwmBoard;
-    int servoID;
-    int incUnit;
-    unsigned long lastUpdate;
+    //properties of servo object
+    Adafruit_PWMServoDriver *driver;    //reference to driver instantiation
+    int pwmBoard;                       //name of driver for servo to support multiple PWM controllers
+    int servoID;                        //config ID of servo
+    int incUnit;                        //pulse increment for each pulse movement of servo
+    unsigned long lastUpdate;           //dynamic state timer / delay between servo pulses, set from servoSpeed[servoID]
 
+    
+    //method to instantiate servo object
     public: AsyncServo(Adafruit_PWMServoDriver *Driver, int ServoId) {
-      driver = Driver;
-      servoID = ServoId;
-      pwmBoard = servoSetup[servoID][1];
-      incUnit = 1;
+      driver = Driver;                    //referenced copy of driver instantiation
+      pwmBoard = servoSetup[servoID][1];  //pulse increment for each pulse movement of servo
+      servoID = ServoId;                  //config ID of servo
+      incUnit = 1;                        //pulse increment for each pulse movement of servo
     }
 
     void Update() {
-      //setup to move servo if active
+      //move servo if active
       if (activeServo[servoID]) {
+        //if servo is at destination, set to inactive
         if (servoPos[servoID] == targetPos[servoID]) {
           activeServo[servoID] = 0;
         }
 
+        //servo stepping state machine
         if ((millis() - lastUpdate) > servoSpeed[servoID]) {
           lastUpdate = millis();
 
@@ -399,7 +421,7 @@ class AsyncServo {
               for (int j = 0; j < 8; j++) {
                 servoRamp[servoID][j] = 0;
               }
-            } else if (servoRamp[servoID][6] && servoRamp[servoID][1]) {
+            } else if (servoRamp[servoID][6] && servoRamp[servoID][1]) {  //moving inbetween ramping
               servoRamp[servoID][1]--;
             }
           }
@@ -421,14 +443,16 @@ class AsyncServo {
           //move servo if not delaying
           if (!servoDelay[servoID][0]) {  
 
-            //restrain targets to min/max limits
+            //limit target by min/max limit comparisons
             if (servoLimit[servoID][0] > servoLimit[servoID][1]) {
+              //left leg, "min" is higher than "max"
               if (targetPos[servoID] > servoLimit[servoID][0]) {
                 targetPos[servoID] = servoLimit[servoID][0];
               } else if (targetPos[servoID] < servoLimit[servoID][1]) {
                 targetPos[servoID] = servoLimit[servoID][1];
               }
             } else {
+              //right leg
               if (targetPos[servoID] < servoLimit[servoID][0]) {
                 targetPos[servoID] = servoLimit[servoID][0];
               } else if (targetPos[servoID] > servoLimit[servoID][1]) {
@@ -436,7 +460,7 @@ class AsyncServo {
               }
             }
 
-            //move servo in direction of leg
+            //move servo by increment in target direction from current position comparison
             if (servoPos[servoID] < targetPos[servoID]) {
               servoPos[servoID] += incUnit;
               driver->setPWM(pwmBoard, 0, servoPos[servoID]);
@@ -445,27 +469,37 @@ class AsyncServo {
               driver->setPWM(pwmBoard, 0, servoPos[servoID]);
             }
 
-            //check for end of steps
+            //count step
             servoStep[servoID]++;
+
+            //check for end of step(s), where current position equals target position
             if (servoPos[servoID] == targetPos[servoID]) {
+              //reset servo steps
+              servoStep[servoID] = 0;
+
+              //DEV NOTE: this might be what's breaking ramping (ie: see bug note in header debug notes
+              //          because the final ramp speed would be ultra-slow (and that's what the bug is doing)
+              //          set servo speed back to original pre-ramp speed instead?
+              //
               if (use_ramp) {
                 servoSpeed[servoID] = servoRamp[servoID][0];
               }
-              servoStep[servoID] = 0;
 
               //Important! 
-              //this is the amp check that will catch locked / over-extended motors
+              //this is the amp check that will catch jammed / over-extended motors!
               if (amp_active) amperage_check(0);
             }
           } else {
-            //count down delay, if set
+            //decrement servo delay, if set
             servoDelay[servoID][0]--;
           }
         }
       }
 
-      //setup to sweep servo if active
+
+      //sweep servo if active
       if (activeSweep[servoID] && !activeServo[servoID]) {
+        //if servo is done sweeping, set to inactive
         if (servoPos[servoID] == targetPos[servoID] && !servoSweep[servoID][3]) {
           activeSweep[servoID] = 0;
           //switch direction
@@ -476,6 +510,7 @@ class AsyncServo {
           }
         }
 
+        //servo sweeping state machine
         if ((millis() - lastUpdate) > servoSpeed[servoID]) {
           lastUpdate = millis();
           
@@ -487,6 +522,7 @@ class AsyncServo {
             Serial.print(F("\tloops: ")); Serial.print(servoSweep[servoID][3]);
           }
 
+          //if no delay (or delay expired)
           if (!servoSweep[servoID][4]) {
 
             //interpolate servoRamp 
@@ -521,7 +557,7 @@ class AsyncServo {
                 for (int j = 0; j < 8; j++) {
                   servoRamp[servoID][j] = 0;
                 }
-              } else if (servoRamp[servoID][6] && servoRamp[servoID][1]) {
+              } else if (servoRamp[servoID][6] && servoRamp[servoID][1]) {  //moving inbetween ramping
                 servoRamp[servoID][1]--;
               }
             }
@@ -539,7 +575,7 @@ class AsyncServo {
               Serial.println(servoSpeed[servoID]);
             }
 
-            //sweep servo
+            //sweep servo by increment in target direction from current position comparison
             if (servoPos[servoID] < targetPos[servoID]) {
               servoPos[servoID] += incUnit;
               if (debug2 && servoID == debug_servo) {
@@ -554,10 +590,15 @@ class AsyncServo {
               driver->setPWM(pwmBoard, 0, servoPos[servoID]);
             }
 
-            //change direction
+            //change direction of sweep type if target reached
             if (servoPos[servoID] == targetPos[servoID] && !servoSweep[servoID][2]) {
               servoSweep[servoID][2] = 1;
               targetPos[servoID] = servoSweep[servoID][0];
+
+              //DEV NOTE: this might be what's breaking ramping (ie: see bug note in header debug notes
+              //          because the final ramp speed would be ultra-slow (and that's what the bug is doing)
+              //          set servo speed back to original pre-ramp speed instead?
+              //
               if (use_ramp) {
                 servoSpeed[servoID] = servoRamp[servoID][0];
                 set_ramp(servoID, servoSpeed[servoID], 0, 0, 0, 0);
@@ -576,12 +617,21 @@ class AsyncServo {
               }
             }
 
+            //count step
             servoStep[servoID]++;
+
+            //check for end of sweep(s), where current position equals target position
             if (servoPos[servoID] == targetPos[servoID]) {
+              //reset servo steps
+              servoStep[servoID] = 0;
+
+              //DEV NOTE: this might be what's breaking ramping (ie: see bug note in header debug notes
+              //          because the final ramp speed would be ultra-slow (and that's what the bug is doing)
+              //          set servo speed back to original pre-ramp speed instead?
+              //
               if (use_ramp) {
                 servoSpeed[servoID] = servoRamp[servoID][1];
               }
-              servoStep[servoID] = 0;
 
               //Important! 
               //this is the amp check that will catch locked / over-extended motors
@@ -602,20 +652,20 @@ class AsyncServo {
 };
 
 
-//instantiate 12 servo objects
-//coaxs
+//instantiate servo objects (s_XXX) with driver reference and servo ID
+//coax servo objects
 AsyncServo s_RFC(&pwm1, RFC);
 AsyncServo s_LFC(&pwm1, LFC);
 AsyncServo s_RRC(&pwm1, RRC);
 AsyncServo s_LRC(&pwm1, LRC);
 
-//femurs
+//femur servo objects
 AsyncServo s_RFF(&pwm1, RFF);
 AsyncServo s_LFF(&pwm1, LFF);
 AsyncServo s_RRF(&pwm1, RRF);
 AsyncServo s_LRF(&pwm1, LRF);
 
-//tibias
+//tibia servo objects
 AsyncServo s_RFT(&pwm1, RFT);
 AsyncServo s_LFT(&pwm1, LFT);
 AsyncServo s_RRT(&pwm1, RRT);
@@ -624,16 +674,21 @@ AsyncServo s_LRT(&pwm1, LRT);
 
 void setup() {
   Serial.begin(19200);
+
+  //allow serial, ps2, and PWM hardware to powerup & connect
   while (!Serial) {
     delay(1);
   }
-  delay(500); //allow ps2 and PWM hardware to powerup & connect
+  delay(500);
+
   if (debug) {
     Serial.println("\n===================================");
     Serial.print("NOVA SM2 v");
     Serial.println(VERSION);
     Serial.println("===================================");
   }
+
+  //seed arduino pin A0, otherwise random() functions will not be truely random
   randomSeed(analogRead(0));
 
   //init leds
@@ -686,7 +741,6 @@ void setup() {
       if (debug) Serial.println("Some other error ocurred");
       ps2_active = 0;
     }
-    spd_factor = mapfloat(spd, min_spd, max_spd, min_spd_factor, max_spd_factor);
   }
 
   //init pwm controller
@@ -715,11 +769,25 @@ void setup() {
       pattern = 3;
     }
 
-    //initialize data arrays with defaults and connect servos
+    //set default speed factor
+    spd_factor = mapfloat(spd, min_spd, max_spd, min_spd_factor, max_spd_factor);
+
+    //initialize servos and populate related data arrays with defaults
     init_home();
     if (debug) {
       Serial.print(TOTAL_SERVOS); Serial.println(F(" Servos Initialized"));
     }
+
+    //DEV NOTE:  this was done because otherwise, there is some electrical(?) interference to
+    //           the PS2 controller / wiring that was causing the remote to fire all buttons at
+    //           arduino boot time, obviously causing Nova to go haywire with unexpected random 
+    //           movement commands!
+    //
+    //           After testing, it appeared to be the PWM controller interfering, so I added code
+    //           to halt its output until the PS2 was fully initialized, which is found at the end 
+    //           of the ps2_check() function.
+    //
+    //disable PWM output after initializing servos
     digitalWrite(OE_PIN, HIGH);
     delay(500);
   }
@@ -729,7 +797,6 @@ void setup() {
     display.begin(SSD1306_SWITCHCAPVCC, 0x3C);
     display.clearDisplay();
 
-    //Display Init Text
     oled_in_use = 1;
     display.setTextSize(1);
     display.setTextColor(WHITE);
@@ -738,7 +805,7 @@ void setup() {
     display.display();
     delay(2000);
 
-    //Display bitmap
+    //animate bitmap
     display.clearDisplay();
     delay(1000);
     display.drawBitmap(0, 0,  smbmp, 128, 64, WHITE);
@@ -754,7 +821,7 @@ void setup() {
     display.clearDisplay();
     display.display();
 
-    //Display banner
+    //animate version banner
     for (int i=25;i>0;i--) {
       int d = (i*2);
       if (i > 22) d = (i*10);
@@ -788,11 +855,13 @@ void setup() {
   }
 
   if (melody_active) {
+    //pay homage to the first robot in my life at age 7, R2D2!! 
     for (int i=0; i<2; i++) {
       play_phrases();
       delay(random(200,800));
     }
   } else if (buzz_active) {
+    //pay homage to the first video came system in my life at age 7, Atari2600!! 
     for (int b = 0; b < 8; b++) {
       tone(BUZZ, (b * 1.5)*200);
       delay(20);
@@ -804,6 +873,12 @@ void setup() {
 
   //calc mpu6050 error margins
   if (mpu_active) {
+
+    //DEV NOTE:  this maybe should be run regardless if mpu_active or not, since
+    //           there are PS2 and serial commands to turn it on / off. If its set active
+    //           without first running this IMU error function, Nova will freak out! 
+    //    
+    //set up variables to compensate for MPU's current positioning
     calculate_IMU_error();
     delay(20);
   }
@@ -819,25 +894,39 @@ void setup() {
 
 void loop() {
 
-  //coxas
+/*
+   -------------------------------------------------------
+   Update Servos
+    :check if servo(s) need updating
+    :this is the core functionality of Nova
+   -------------------------------------------------------
+*/
+  //update coxas
   s_RFC.Update();
   s_LFC.Update();
   s_RRC.Update();
   s_LRC.Update();
 
-  //femurs
+  //update femurs
   s_RFF.Update();
   s_LFF.Update();
   s_RRF.Update();
   s_LRF.Update();
 
-  //tibias
+  //update tibias
   s_RFT.Update();
   s_LFT.Update();
   s_RRT.Update();
   s_LRT.Update();
 
-  //moves check
+
+/*
+   -------------------------------------------------------
+   Check for Moves
+    :check if any scripted, sequenced, or dynamic moves are active
+    :and execute accordingly along with any required variables defined
+   -------------------------------------------------------
+*/
   if (move_sequence) {
     run_sequence();
   } else if (move_x_axis) {
@@ -897,9 +986,18 @@ void loop() {
     yaw_y();
   } else if (move_yaw) {
     yaw();
+  } else if (move_servo) {
+    move_debug_servo();
+  } else if (move_leg) {
+    move_debug_leg();
   }
 
-  //check state machines
+/*
+   -------------------------------------------------------
+   Check State Machines
+    :check active state machine(s) for execution time by its respective interval
+   -------------------------------------------------------
+*/
   if (ps2_active) {
     if (millis() - lastPS2Update > ps2Interval) ps2_check();
   }
@@ -947,6 +1045,12 @@ void loop() {
    Hardware Functions
    -------------------------------------------------------
 */
+/*
+   -------------------------------------------------------
+   PS2 Check
+    :provide general description and explanation here - too much to comment by line
+   -------------------------------------------------------
+*/
 void ps2_check() {
   if (pwm_oe) {
     ps2x.read_gamepad(false, false);
@@ -959,14 +1063,14 @@ void ps2_check() {
           if (mpu_active) {
             mpu_active = 0;
             pattern = 11;
-            cur_rgb_val[0] = 155; cur_rgb_val[1] = 155; cur_rgb_val[2] = 155;
+            cur_rgb_val1[0] = 155; cur_rgb_val1[1] = 155; cur_rgb_val1[2] = 155;
             pattern_cnt = 3;
             pattern_int = 200;
             rgb_check(pattern);
           } else {
             mpu_active = 1;
             pattern = 11;
-            cur_rgb_val[0] = 155; cur_rgb_val[1] = 155; cur_rgb_val[2] = 155;
+            cur_rgb_val1[0] = 155; cur_rgb_val1[1] = 155; cur_rgb_val1[2] = 155;
             pattern_cnt = 5;
             pattern_int = 100;
             rgb_check(pattern);
@@ -990,7 +1094,7 @@ void ps2_check() {
         }
         if (rgb_active) {
           pattern = 11;
-          cur_rgb_val[0] = 0; cur_rgb_val[1] = 0; cur_rgb_val[2] = 155;
+          cur_rgb_val1[0] = 0; cur_rgb_val1[1] = 0; cur_rgb_val1[2] = 155;
           pattern_cnt = ps2_select;
           pattern_int = 70;
           rgb_check(pattern);
@@ -1694,7 +1798,7 @@ void ps2_check() {
       pattern = 11;
       pattern_cnt = 3;
       pattern_int = 300;
-      cur_rgb_val[0] = 255; cur_rgb_val[1] = 255; cur_rgb_val[2] = 155;
+      cur_rgb_val1[0] = 255; cur_rgb_val1[1] = 255; cur_rgb_val1[2] = 155;
       rgb_check(pattern);
     }
     digitalWrite(OE_PIN, LOW);
@@ -1704,6 +1808,12 @@ void ps2_check() {
   lastPS2Update = millis();
 }
 
+/*
+   -------------------------------------------------------
+   PIR Check
+    :provide general description and explanation here
+   -------------------------------------------------------
+*/
 void pir_check() {
   pir_val = digitalRead(PIR_SENSOR);
   pir_wait--;
@@ -1830,6 +1940,12 @@ void pir_check() {
   lastPIRUpdate = millis();
 }
 
+/*
+   -------------------------------------------------------
+   Get Ultrasonic Reading(s)
+    :provide general description and explanation here
+   -------------------------------------------------------
+*/
 int get_uss(int pid) {
   uss_val = 0;
 
@@ -1889,6 +2005,12 @@ int get_uss(int pid) {
   }
 }
 
+/*
+   -------------------------------------------------------
+   Get MPU Data
+    :provide general description and explanation here
+   -------------------------------------------------------
+*/
 void get_mpu() {
   // === Read acceleromter data === //
   Wire.beginTransmission(MPU);
@@ -1932,6 +2054,12 @@ void get_mpu() {
   set_axis(mroll, mpitch);
 }
 
+/*
+   -------------------------------------------------------
+   Set MPU Error Data
+    :provide general description and explanation here
+   -------------------------------------------------------
+*/
 void calculate_IMU_error() {
   // Read accelerometer values 200 times
   while (mpu_c < 200) {
@@ -1986,6 +2114,12 @@ void calculate_IMU_error() {
   }
 }
 
+/*
+   -------------------------------------------------------
+   Check Amperage Level
+    :provide general description and explanation here
+   -------------------------------------------------------
+*/
 void amperage_check(int aloop) {
   unsigned int x=0;
   float AcsValue=0.0,Samples=0.0,AvgAcs=0.0,AcsValueF=0.0;
@@ -1993,7 +2127,7 @@ void amperage_check(int aloop) {
   for (int x = 0; x < 150; x++){ //Get 150 samples
     AcsValue = analogRead(AMP_PIN);     //Read current sensor values   
     Samples = Samples + AcsValue;  //Add samples together
-//millis this if possible... adds blocking delay to code!!
+//state machine this if possible... adds blocking delay to code!!
     delay(3); // let ADC settle before next sample 3ms
   }
   AvgAcs=Samples/150.0;//Taking Average of Samples
@@ -2025,7 +2159,7 @@ void amperage_check(int aloop) {
 
     if (rgb_active) {
       pattern = 11;
-      cur_rgb_val[0] = 255; cur_rgb_val[1] = 0; cur_rgb_val[2] = 0;
+      cur_rgb_val1[0] = 255; cur_rgb_val1[1] = 0; cur_rgb_val1[2] = 0;
       cur_rgb_val2[0] = 0; cur_rgb_val2[1] = 155; cur_rgb_val2[2] = 255;
       pattern_int = 30;
       rgb_check(pattern);
@@ -2046,7 +2180,7 @@ void amperage_check(int aloop) {
 
     if (rgb_active) {
       pattern = 11;
-      cur_rgb_val[0] = 255; cur_rgb_val[1] = 255; cur_rgb_val[2] = 0;
+      cur_rgb_val1[0] = 255; cur_rgb_val1[1] = 255; cur_rgb_val1[2] = 0;
       cur_rgb_val2[0] = 0; cur_rgb_val2[1] = 155; cur_rgb_val2[2] = 255;
       pattern_int = 30;
       rgb_check(pattern);
@@ -2064,7 +2198,7 @@ void amperage_check(int aloop) {
 
     if (rgb_active) {
       pattern = 11;
-      cur_rgb_val[0] = 0; cur_rgb_val[1] = 255; cur_rgb_val[2] = 0;
+      cur_rgb_val1[0] = 0; cur_rgb_val1[1] = 255; cur_rgb_val1[2] = 0;
       cur_rgb_val2[0] = 0; cur_rgb_val2[1] = 155; cur_rgb_val2[2] = 255;
       pattern_int = 30;
       rgb_check(pattern);
@@ -2088,6 +2222,12 @@ void amperage_check(int aloop) {
    lastAmpUpdate = millis();
 }
 
+/*
+   -------------------------------------------------------
+   Check Battery Level
+    :provide general description and explanation here
+   -------------------------------------------------------
+*/
 void battery_check() {
   int sensorValue = analogRead(BATT_MONITOR);
   batt_voltage = sensorValue * (5.00 / 1023.00) * 2.7; // Convert the reading values from 5v to 12V
@@ -2107,7 +2247,7 @@ void battery_check() {
     for (int i = 0; i<4; i++) {
       if (batt_voltage <= batt_levels[i]) {
         batt_danger++;
-        cur_rgb_val[0] = 255; cur_rgb_val[1] = 55; cur_rgb_val[2] = 0;
+        cur_rgb_val1[0] = 255; cur_rgb_val1[1] = 55; cur_rgb_val1[2] = 0;
         pattern_cnt = (i+1)*1;
         pattern_int -= (i+1)*20;
         if (debug4) {
@@ -2207,7 +2347,7 @@ void detach_all() {
   if (rgb_active) {
     pattern_cnt = 100;
     pattern = 11;
-    cur_rgb_val[0] = 255; cur_rgb_val[1] = 0; cur_rgb_val[2] = 0;
+    cur_rgb_val1[0] = 255; cur_rgb_val1[1] = 0; cur_rgb_val1[2] = 0;
     cur_rgb_val2[0] = 0; cur_rgb_val2[1] = 155; cur_rgb_val2[2] = 255;
     pattern_int = 300;
     rgb_check(pattern);
@@ -2313,6 +2453,8 @@ void set_stop_active() {
   move_yaw_x = 0;
   move_yaw_y = 0;
   move_yaw = 0;
+  move_leg = 0;
+  move_servo = 0;
 }
 
 void set_speed() {
@@ -2324,15 +2466,15 @@ void set_speed() {
   if (rgb_active) {
     pattern = 11;
     if (spd < 6) {
-      cur_rgb_val[0] = 255; cur_rgb_val[1] = 0; cur_rgb_val[2] = 0;
+      cur_rgb_val1[0] = 255; cur_rgb_val1[1] = 0; cur_rgb_val1[2] = 0;
     } else if (spd < 11) {
-      cur_rgb_val[0] = 255; cur_rgb_val[1] = 255; cur_rgb_val[2] = 100;
+      cur_rgb_val1[0] = 255; cur_rgb_val1[1] = 255; cur_rgb_val1[2] = 100;
     } else if (spd < 21) {
-      cur_rgb_val[0] = 0; cur_rgb_val[1] = 255; cur_rgb_val[2] = 0;
+      cur_rgb_val1[0] = 0; cur_rgb_val1[1] = 255; cur_rgb_val1[2] = 0;
     } else if (spd < 31) {
-      cur_rgb_val[0] = 0; cur_rgb_val[1] = 0; cur_rgb_val[2] = 255;
+      cur_rgb_val1[0] = 0; cur_rgb_val1[1] = 0; cur_rgb_val1[2] = 255;
     } else {
-      cur_rgb_val[0] = 85; cur_rgb_val[1] = 45; cur_rgb_val[2] = 255;
+      cur_rgb_val1[0] = 85; cur_rgb_val1[1] = 45; cur_rgb_val1[2] = 255;
     }
     pattern_cnt = 5;
     pattern_int = (spd * 10);
@@ -3624,7 +3766,7 @@ void step_backward(int xdir) {
 void look_left() {
   if (rgb_active) {
     pattern = 11;
-    cur_rgb_val[0] = 0; cur_rgb_val[1] = 0; cur_rgb_val[2] = 255;
+    cur_rgb_val1[0] = 0; cur_rgb_val1[1] = 0; cur_rgb_val1[2] = 255;
     pattern_cnt = 3;
     pattern_int = 100;
     rgb_check(pattern);
@@ -3678,7 +3820,7 @@ void look_left() {
 void look_right() {
   if (rgb_active) {
     pattern = 11;
-    cur_rgb_val[0] = 0; cur_rgb_val[1] = 0; cur_rgb_val[2] = 255;
+    cur_rgb_val1[0] = 0; cur_rgb_val1[1] = 0; cur_rgb_val1[2] = 255;
     pattern_cnt = 3;
     pattern_int = 100;
     rgb_check(pattern);
@@ -4513,6 +4655,76 @@ void funplay() {
 
 
 
+
+void move_debug_servo() {
+  if (!activeSweep[debug_servo]) {
+    servoSpeed[debug_servo] = debug_spd;
+    servoSweep[debug_servo][0] = servoLimit[debug_servo][0];
+    servoSweep[debug_servo][1] = servoLimit[debug_servo][1];
+    servoSweep[debug_servo][2] = 0;
+    servoSweep[debug_servo][3] = 1;
+    targetPos[debug_servo] = servoSweep[debug_servo][1];
+    activeSweep[debug_servo] = 1;
+
+    if (debug_loops2) {
+      debug_loops2--;
+    }
+    if (!debug_loops2) {
+      set_stop_active();
+      set_home();
+    } 
+  }
+}
+
+
+void move_debug_leg() {
+  //check if leg active
+  int lactive = 0;
+  for (int i = 0; i < 3; i++) {
+    int dservo = servoLeg[debug_leg][i];
+    if (activeSweep[dservo]) {
+      lactive = 1;
+    }
+  }
+
+  if (!lactive) {
+    for (int i = 0; i < 3; i++) {
+      int dservo = servoLeg[debug_leg][i];
+      if (!activeSweep[dservo]) {
+        servoSpeed[dservo] = debug_spd;
+        if (is_front_leg(dservo)) {
+          servoSweep[dservo][0] = servoLimit[dservo][1];
+          servoSweep[dservo][1] = servoLimit[dservo][0];
+          if (is_femur(dservo)) {
+            servoSweep[dservo][0] = servoLimit[dservo][0];
+            servoSweep[dservo][1] = servoLimit[dservo][1];
+          }
+        } else {
+          servoSweep[dservo][0] = servoLimit[dservo][0];
+          servoSweep[dservo][1] = servoLimit[dservo][1];
+          if (is_femur(dservo)) {
+            servoSweep[dservo][0] = servoLimit[dservo][1];
+            servoSweep[dservo][1] = servoLimit[dservo][0];
+          }
+        }
+        servoSweep[dservo][2] = 0;
+        servoSweep[dservo][3] = 1;
+        targetPos[dservo] = servoSweep[dservo][1];
+        activeSweep[dservo] = 1;
+      }
+    }
+
+    if (debug_loops2) {
+      debug_loops2--;
+    } 
+    if (!debug_loops2) {
+      set_stop_active();
+      set_home();
+    } 
+  }
+}
+
+
 /*
    -------------------------------------------------------
    Sequence Processing Functions
@@ -4964,7 +5176,7 @@ void wake_display(Adafruit_SSD1306* display) {
 void serial_check() {
   if (serial_active && Serial.available() > 0) {
     ByteReceived = Serial.read();
-    if (debug2) {
+    if (debug4) {
       Serial.print(ByteReceived);Serial.print("\t");
       Serial.print(ByteReceived, HEX);Serial.print("\t");
       Serial.println(char(ByteReceived));
@@ -5002,7 +5214,7 @@ void serial_check() {
         }
         Serial.print("+y_dir ");Serial.println(y_dir);
         break;
-       case 46:
+      case 46:
         Serial.println("x_dir -5");
         if (x_dir > move_x_steps[0]) {
           x_dir -= 2;
@@ -5014,6 +5226,26 @@ void serial_check() {
           x_dir += 2;
         }
         Serial.print("+x_dir ");Serial.println(x_dir);
+        break;
+      case 45:
+        if (debug_servo > 0) {
+          debug_servo--;
+        }
+        Serial.print("set debug servo ");Serial.println(debug_servo);
+        break;
+      case 61:
+        if (debug_servo < (TOTAL_SERVOS-1)) {
+          debug_servo++;
+        }
+        Serial.print("set debug servo ");Serial.println(debug_servo);
+        break;
+      case 92:
+        if (debug_leg < (TOTAL_LEGS-1)) {
+          debug_leg++;
+        } else {
+          debug_leg = 0;
+        }
+        Serial.print("set debug leg ");Serial.println(debug_leg);
         break;
       case '1':
         Serial.println("set speed 1");
@@ -5240,7 +5472,16 @@ void serial_check() {
           }
         }
         break;
-      
+      case 'g':
+        Serial.print("debug servo ");Serial.println(debug_servo);
+        debug_loops2 = debug_loops;
+        move_servo = 1;
+        break;
+      case 'e':
+        Serial.print("debug leg ");Serial.println(debug_leg);
+        debug_loops2 = debug_loops;
+        move_leg = 1;
+        break;
       case 'h':
         Serial.println();
         Serial.println("\t-----------------------------------------");
@@ -5291,6 +5532,11 @@ void serial_check() {
         Serial.println();
         Serial.println("\t|\tz\tmpu active\t\t|");
         Serial.println("\t|\to\ttest OLED\t\t|");
+        Serial.print("\t|\tg\tdebug servo ");Serial.print(debug_servo);Serial.println("\t\t|");
+        Serial.println("\t|\t-\tprev debug_servo\t|");
+        Serial.println("\t|\t=\tnext debug_servo\t|");
+        Serial.print("\t|\te\tdebug leg ");Serial.print(debug_leg);Serial.println("\t\t|");
+        Serial.println("\t|\t\\\tnext debug_leg\t\t|");
         Serial.println("\t|\th\thelp\t\t\t|");
         Serial.println("\t-----------------------------------------");
         Serial.println();
@@ -5346,7 +5592,7 @@ void rgb_check(int pat) {
     case 11:
       if (pattern_cnt) {
         rgbInterval = pattern_int;
-        blink_rgb(cur_rgb_val, cur_rgb_val2);
+        blink_rgb(cur_rgb_val1, cur_rgb_val2);
       } else if (rgbInterval == pattern_int) {
         rgbInterval = 30;
         wipe_eyes();

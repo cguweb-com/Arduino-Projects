@@ -1,7 +1,7 @@
 /*
- *   NovaSM2 - a Spot-Micro clone
- *   Version: 3.1
- *   Version Date: 2021-03-21
+ *   NovaSM2 - a Spot-Mini Micro clone
+ *   Version: 3.2
+ *   Version Date: 2021-03-31
  *   
  *   Author:  Chris Locke - cguweb@gmail.com
  *   GitHub Project:  https://github.com/cguweb-com/Arduino-Projects/tree/main/Nova-SM2
@@ -9,11 +9,11 @@
  *   
  *   RELEASE NOTES:
  *      mega performance: 43% storage / 55% memory
- *      renamed some AsyncServo properties
- *      improved oled performance
- *      removed test_run (use serial commands instead)
+ *      updated NovaServos after recalibrating servos
+ *      added serial commands for testing servos
  *
  *   DEV NOTES:
+ *      BUG: during testing routines, on abrupt change of routine, ramping hangs, stepping every +/-1000ms
  *      re-calibrate servos to balance Nova!! seems to be back-heavy
  *      x_axis: tweak pattern, adjusting use of move_steps to not near fall over backwards on startup
  *      finish tweaking left and right step
@@ -23,7 +23,7 @@
  *      
 */
 
-#define VERSION 3.1
+#define VERSION 3.2
 
 //debug vars
 byte debug = 1;
@@ -31,19 +31,24 @@ byte debug2 = 0;
 byte debug3 = 0;
 byte debug4 = 0;
 byte plotter = 0;
-int debug_servo = 1;
+
+int debug_leg = 0;
+int debug_servo = 0;
+int debug_loops = 3;
+int debug_loops2 = 3;
+int debug_spd = 10;
 
 //activate/deactivate devices
 byte pwm_active = 1;
-byte ps2_active = 1;
+byte ps2_active = 0;
 byte serial_active = 1;
 byte mpu_active = 0;
 byte rgb_active = 1;
-byte oled_active = 1;
+byte oled_active = 0;
 byte pir_active = 0;
 byte uss_active = 0;  //test: PENDING
 byte amp_active = 0;  //test: PENDING
-byte batt_active = 0;
+byte batt_active = 1;
 byte buzz_active = 1;
 byte melody_active = 0;
 
@@ -181,7 +186,7 @@ unsigned long lastSerialUpdate = 0;
 
 
 //amperage monitor
-#define AMP_PIN A1
+#define AMP_PIN A2
 #define PWR_PIN 4
 unsigned int ampInterval = 15000;
 unsigned long lastAmpUpdate = 0;
@@ -193,13 +198,13 @@ float amp_limit = 6.5;
 
 
 //battery monitor
-#define BATT_MONITOR A2
-unsigned long batteryInterval = 30000;
+#define BATT_MONITOR A1
+unsigned long batteryInterval = 60000;
 unsigned long lastBatteryUpdate = 0;
 int batt_cnt = 0;
 int batt_skip = 0;
-float batt_voltage = 11.1; 
-float batt_voltage_prev = 11.1; 
+float batt_voltage = 11.4; 
+float batt_voltage_prev = 11.4; 
 float batt_levels[4] = {10.9, 10.7, 10.5, 10.4};
 
 
@@ -254,6 +259,8 @@ byte move_kin_y = 0;
 byte move_yaw_x = 0;
 byte move_yaw_y = 0;
 byte move_yaw = 0;
+byte move_servo = 0;
+byte move_leg = 0;
 
 float step_weight_factor = 0;
 float step_height_factor = 1.25;
@@ -897,6 +904,10 @@ void loop() {
     yaw_y();
   } else if (move_yaw) {
     yaw();
+  } else if (move_servo) {
+    move_debug_servo();
+  } else if (move_leg) {
+    move_debug_leg();
   }
 
   //check state machines
@@ -2313,6 +2324,8 @@ void set_stop_active() {
   move_yaw_x = 0;
   move_yaw_y = 0;
   move_yaw = 0;
+  move_leg = 0;
+  move_servo = 0;
 }
 
 void set_speed() {
@@ -4513,6 +4526,76 @@ void funplay() {
 
 
 
+
+void move_debug_servo() {
+  if (!activeSweep[debug_servo]) {
+    servoSpeed[debug_servo] = debug_spd;
+    servoSweep[debug_servo][0] = servoLimit[debug_servo][0];
+    servoSweep[debug_servo][1] = servoLimit[debug_servo][1];
+    servoSweep[debug_servo][2] = 0;
+    servoSweep[debug_servo][3] = 1;
+    targetPos[debug_servo] = servoSweep[debug_servo][1];
+    activeSweep[debug_servo] = 1;
+
+    if (debug_loops2) {
+      debug_loops2--;
+    }
+    if (!debug_loops2) {
+      set_stop_active();
+      set_home();
+    } 
+  }
+}
+
+
+void move_debug_leg() {
+  //check if leg active
+  int lactive = 0;
+  for (int i = 0; i < 3; i++) {
+    int dservo = servoLeg[debug_leg][i];
+    if (activeSweep[dservo]) {
+      lactive = 1;
+    }
+  }
+
+  if (!lactive) {
+    for (int i = 0; i < 3; i++) {
+      int dservo = servoLeg[debug_leg][i];
+      if (!activeSweep[dservo]) {
+        servoSpeed[dservo] = debug_spd;
+        if (is_front_leg(dservo)) {
+          servoSweep[dservo][0] = servoLimit[dservo][1];
+          servoSweep[dservo][1] = servoLimit[dservo][0];
+          if (is_femur(dservo)) {
+            servoSweep[dservo][0] = servoLimit[dservo][0];
+            servoSweep[dservo][1] = servoLimit[dservo][1];
+          }
+        } else {
+          servoSweep[dservo][0] = servoLimit[dservo][0];
+          servoSweep[dservo][1] = servoLimit[dservo][1];
+          if (is_femur(dservo)) {
+            servoSweep[dservo][0] = servoLimit[dservo][1];
+            servoSweep[dservo][1] = servoLimit[dservo][0];
+          }
+        }
+        servoSweep[dservo][2] = 0;
+        servoSweep[dservo][3] = 1;
+        targetPos[dservo] = servoSweep[dservo][1];
+        activeSweep[dservo] = 1;
+      }
+    }
+
+    if (debug_loops2) {
+      debug_loops2--;
+    } 
+    if (!debug_loops2) {
+      set_stop_active();
+      set_home();
+    } 
+  }
+}
+
+
 /*
    -------------------------------------------------------
    Sequence Processing Functions
@@ -4964,7 +5047,7 @@ void wake_display(Adafruit_SSD1306* display) {
 void serial_check() {
   if (serial_active && Serial.available() > 0) {
     ByteReceived = Serial.read();
-    if (debug2) {
+    if (debug4) {
       Serial.print(ByteReceived);Serial.print("\t");
       Serial.print(ByteReceived, HEX);Serial.print("\t");
       Serial.println(char(ByteReceived));
@@ -5002,7 +5085,7 @@ void serial_check() {
         }
         Serial.print("+y_dir ");Serial.println(y_dir);
         break;
-       case 46:
+      case 46:
         Serial.println("x_dir -5");
         if (x_dir > move_x_steps[0]) {
           x_dir -= 2;
@@ -5014,6 +5097,26 @@ void serial_check() {
           x_dir += 2;
         }
         Serial.print("+x_dir ");Serial.println(x_dir);
+        break;
+      case 45:
+        if (debug_servo > 0) {
+          debug_servo--;
+        }
+        Serial.print("set debug servo ");Serial.println(debug_servo);
+        break;
+      case 61:
+        if (debug_servo < (TOTAL_SERVOS-1)) {
+          debug_servo++;
+        }
+        Serial.print("set debug servo ");Serial.println(debug_servo);
+        break;
+      case 92:
+        if (debug_leg < (TOTAL_LEGS-1)) {
+          debug_leg++;
+        } else {
+          debug_leg = 0;
+        }
+        Serial.print("set debug leg ");Serial.println(debug_leg);
         break;
       case '1':
         Serial.println("set speed 1");
@@ -5240,7 +5343,16 @@ void serial_check() {
           }
         }
         break;
-      
+      case 'g':
+        Serial.print("debug servo ");Serial.println(debug_servo);
+        debug_loops2 = debug_loops;
+        move_servo = 1;
+        break;
+      case 'e':
+        Serial.print("debug leg ");Serial.println(debug_leg);
+        debug_loops2 = debug_loops;
+        move_leg = 1;
+        break;
       case 'h':
         Serial.println();
         Serial.println("\t-----------------------------------------");
@@ -5291,6 +5403,10 @@ void serial_check() {
         Serial.println();
         Serial.println("\t|\tz\tmpu active\t\t|");
         Serial.println("\t|\to\ttest OLED\t\t|");
+        Serial.println("\t|\t-\tprev debug_servo\t|");
+        Serial.println("\t|\t=\tnext debug_servo\t|");
+        Serial.print("\t|\tg\tdebug servo ");Serial.print(debug_servo);Serial.println("\t\t|");
+        Serial.print("\t|\te\tdebug leg ");Serial.print(debug_leg);Serial.println("\t\t|");
         Serial.println("\t|\th\thelp\t\t\t|");
         Serial.println("\t-----------------------------------------");
         Serial.println();
