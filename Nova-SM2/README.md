@@ -1,4 +1,4 @@
-# Nova-SM2
+# Nova-SM2 - a Spot-Mini Micro clone
 
 This is software to drive my spotmini clone project, Nova Spot Micro
 
@@ -11,7 +11,7 @@ I'd be happy to answer any questions, and/or receive any type of feedback... hap
 
 
 
-   ## NovaSM2 - a Spot-Mini Micro clone
+   ## PROJECT NOTES
  
    Version: **3.2**
    
