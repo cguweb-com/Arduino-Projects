@@ -10,7 +10,7 @@ I'd be happy to answer any questions, and/or receive any type of feedback... hap
 
 
 
-   NovaSM2 - a Spot-Mini Micro clone
+   NovaSM2 - a Spot-Mini Micro clone 
    Version: 3.2
    Version Date: 2021-03-31
    
