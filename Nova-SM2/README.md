@@ -36,13 +36,13 @@ I'd be happy to answer any questions, and/or receive any type of feedback... hap
       
 
    ### DEV NOTES:
-   - [ ] BUG: during testing routines, on abrupt change of routine, ramping hangs, stepping every +/-1000ms
-   - [ ] re-calibrate servo home positions to balance Nova's COG!! seems to be back-heavy
-   - [ ] x_axis: tweak pattern, adjusting use of move_steps to not near fall over backwards on startup
-   - [ ] finish tweaking left and right stepping
-   - [ ] finish forward step (w/ left, right, backwards!)
-   - [ ] write a stable fixed speed / step walking routine
-   - [ ] fix 'stay' routine (ie: tends to fall backward when coming off of kneel or sit positions into stay)
+      - [ ] BUG: during testing routines, on abrupt change of routine, ramping hangs, stepping every +/-1000ms
+      - [ ] re-calibrate servo home positions to balance Nova's COG!! seems to be back-heavy
+      - [ ] x_axis: tweak pattern, adjusting use of move_steps to not near fall over backwards on startup
+      - [ ] finish tweaking left and right stepping
+      - [ ] finish forward step (w/ left, right, backwards!)
+      - [ ] write a stable fixed speed / step walking routine
+      - [ ] fix 'stay' routine (ie: tends to fall backward when coming off of kneel or sit positions into stay)
       
       see **DEV NOTES** in code comments for more bugs/tasks
       
