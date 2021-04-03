@@ -4,7 +4,9 @@ This is the software for my spot-mini clone project, Nova Spot Micro
 
 https://www.youtube.com/watch?v=00PkTcGWPvo&list=PLcOZNHwM_I2a3YZKf8FtUjJneKGXCfduk
 
-It was not written with public consumption in mind, and is still under development, so use at your own risk! A list of links (yes, Amazon affiliate links!) to all of the hardware components used can be found on the Instructables page for this project, linked below.  
+It was not written with public consumption in mind, and is still under development, so use at your own risk!  
+
+A list of links (yes, Amazon affiliate links!) to all of the hardware components used can be found on the Instructables page for this project, linked below.  
 
 I'd be happy to answer any questions, and/or receive any type of feedback... happy hacking!  
 ##     
