@@ -8,7 +8,7 @@ A list of links (yes, Amazon affiliate links!) to all of the hardware components
 
 I'd be happy to answer any questions, and/or receive any type of feedback... happy hacking!  
   
-##     
+##    
    ## PROJECT NOTES
  
    Version: **3.2**
@@ -26,15 +26,17 @@ I'd be happy to answer any questions, and/or receive any type of feedback... hap
    
    YouTube Playlist:  https://www.youtube.com/watch?v=00PkTcGWPvo&list=PLcOZNHwM_I2a3YZKf8FtUjJneKGXCfduk
    
-   
+
+##    
    ### RELEASE NOTES:
    
       - Arduino mega performance: 42% storage / 57% memory
       - commented code for github release
       - updated NovaServos after recalibrating servos
       - added serial commands for testing servos / legs
-      
 
+  
+##    
    ### DEV NOTES:
       - [ ] BUG: during testing routines, on abrupt change of routine, ramping hangs, stepping every +/-1000ms
       - [ ] re-calibrate servo home positions to balance Nova's COG!! seems to be back-heavy
