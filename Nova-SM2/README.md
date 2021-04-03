@@ -26,7 +26,7 @@ I'd be happy to answer any questions, and/or receive any type of feedback... hap
    Instructables Project:  https://www.instructables.com/member/cguweb/instructables/
    
    
-   ###RELEASE NOTES:
+   ### RELEASE NOTES:
    
       Arduino mega performance: 42% storage / 57% memory
       
@@ -37,7 +37,7 @@ I'd be happy to answer any questions, and/or receive any type of feedback... hap
       added serial commands for testing servos / legs
       
 
-   ###DEV NOTES:
+   ### DEV NOTES:
    
        [ ] BUG: during testing routines, on abrupt change of routine, ramping hangs, stepping every +/-1000ms
       
