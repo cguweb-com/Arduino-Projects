@@ -1,5 +1,5 @@
 # Nova-SM2 - a Spot-Mini Micro clone
-
+![Nova-SM2](https://raw.githubusercontent.com/cguweb-com/Arduino-Projects/main/Nova-SM2/Nova-SM2.jpg)  
 This is software to drive my spotmini clone project, Nova Spot Micro
 
 https://www.youtube.com/watch?v=00PkTcGWPvo&list=PLcOZNHwM_I2a3YZKf8FtUjJneKGXCfduk
