@@ -1,4 +1,4 @@
-# Nova-SM2 - a Spot-Mini Micro clone
+# Nova SM2 - a Spot-Mini Micro clone
 ![Nova-SM2](https://raw.githubusercontent.com/cguweb-com/Arduino-Projects/main/Nova-SM2/Nova-SM2.jpg)  
 This is the software for my spot-mini clone project, Nova Spot Micro  
 
