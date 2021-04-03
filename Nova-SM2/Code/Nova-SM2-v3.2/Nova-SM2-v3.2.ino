@@ -7,6 +7,7 @@
  *   GitHub Project:  https://github.com/cguweb-com/Arduino-Projects/tree/main/Nova-SM2
  *   Thingiverse:  https://www.thingiverse.com/thing:4767006
  *   Instructables Project:  https://www.instructables.com/Nova-Spot-Micro-a-Spot-Mini-Clone/
+ *   YouTube Playlist:  https://www.youtube.com/watch?v=00PkTcGWPvo&list=PLcOZNHwM_I2a3YZKf8FtUjJneKGXCfduk
  *   
  *   RELEASE NOTES:
  *      Arduino mega performance: 42% storage / 57% memory
