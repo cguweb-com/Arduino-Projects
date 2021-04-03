@@ -1,14 +1,13 @@
 # Nova-SM2 - a Spot-Mini Micro clone
 ![Nova-SM2](https://raw.githubusercontent.com/cguweb-com/Arduino-Projects/main/Nova-SM2/Nova-SM2.jpg)  
-This is the software for my spot-mini clone project, Nova Spot Micro
-
-https://www.youtube.com/watch?v=00PkTcGWPvo&list=PLcOZNHwM_I2a3YZKf8FtUjJneKGXCfduk
+This is the software for my spot-mini clone project, Nova Spot Micro  
 
 It was not written with public consumption in mind, and is still under development, so use at your own risk!  
 
 A list of links (yes, Amazon affiliate links!) to all of the hardware components used can be found on the Instructables page for this project, linked below.  
 
 I'd be happy to answer any questions, and/or receive any type of feedback... happy hacking!  
+  
 ##     
    ## PROJECT NOTES
  
@@ -24,6 +23,8 @@ I'd be happy to answer any questions, and/or receive any type of feedback... hap
    Thingiverse:  https://www.thingiverse.com/thing:4767006
    
    Instructables Project:  https://www.instructables.com/Nova-Spot-Micro-a-Spot-Mini-Clone/
+   
+   YouTube Playlist:  https://www.youtube.com/watch?v=00PkTcGWPvo&list=PLcOZNHwM_I2a3YZKf8FtUjJneKGXCfduk
    
    
    ### RELEASE NOTES:
