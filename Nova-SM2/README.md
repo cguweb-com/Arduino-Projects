@@ -10,14 +10,15 @@ I'd be happy to answer any questions, and/or receive any type of feedback... hap
 
 
 
-   NovaSM2 - a Spot-Mini Micro clone
+
+   ## NovaSM2 - a Spot-Mini Micro clone
  
-   Version: 3.2
+   Version: **3.2**
    
-   Version Date: 2021-03-31
+   Version Date: **2021-03-31**
    
    
-   Author:  Chris Locke - cguweb@gmail.com
+   Author:  **Chris Locke** - cguweb@gmail.com
    
    GitHub Project:  https://github.com/cguweb-com/Arduino-Projects/tree/main/Nova-SM2
    
