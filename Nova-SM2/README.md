@@ -21,7 +21,7 @@ I'd be happy to answer any questions, and/or receive any type of feedback... hap
    
    Thingiverse:  https://www.thingiverse.com/thing:4767006
    
-   Instructables Project:  https://www.instructables.com/member/cguweb/instructables/
+   Instructables Project:  https://www.instructables.com/Nova-Spot-Micro-a-Spot-Mini-Clone/
    
    
    ### RELEASE NOTES:
