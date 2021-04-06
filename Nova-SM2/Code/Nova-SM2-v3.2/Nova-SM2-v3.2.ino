@@ -12,19 +12,21 @@
  *   RELEASE NOTES:
  *      Arduino mega performance: 42% storage / 52% memory
  *      commented code for github release
+ *      replaced string print statements with .print(F("string here")) to reclaim some system memory
  *
  *   DEV NOTES:
- *      replace print statements with .print(F("string here")) to reclaim some system memory
- *      BUG: during testing routines, on abrupt change of routine, ramping hangs, stepping every +/-1000ms
+ *      BUG: ramping: on interruption of ramp, servo speed is set to the speed of the point of interrupt
  *      re-calibrate servo home positions to balance Nova's COG!! seems to be back-heavy
+ *      write a z-axis control that is sticky, so it maintains the set height on subsequent moves
+ *      write a stable fixed speed / step walking routine
+ *      fix 'stay' routine (ie: tends to fall backward when coming off of kneel or sit positions into stay)
+ *      work on integrating MPU data into movements
  *      x_axis: tweak pattern, adjusting use of move_steps to not near fall over backwards on startup
  *      finish tweaking left and right stepping
  *      finish forward step (w/ left, right, backwards!)
- *      write a stable fixed speed / step walking routine
- *      write a z-axis control that is sticky, so it maintains the set height on subsequent moves
- *      fix 'stay' routine (ie: tends to fall backward when coming off of kneel or sit positions into stay)
- *      work on integrating MPU data into movements
- *      see DEV NOTES in code comments for more bugs/tasks
+ *      
+ *      see more 'DEV NOTE' comments in code for more bugs/tasks
+ *      
 */
 
 //set Nova SM2 version
