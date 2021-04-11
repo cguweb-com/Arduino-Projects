@@ -6,7 +6,7 @@
 [(1) ACS712 Current Sensor Module](https://amzn.to/3rzUfum)  
 [(1) MOSFET IRF540N](https://amzn.to/2PKW6P3)  
 [(1) DIODE 1n4004](https://amzn.to/3l3lc7f)  
-[(1) 2k Resistor(https://amzn.to/2ODEgwS)]  
+[(1) 2k Resistor](https://amzn.to/2ODEgwS)  
 [(2) 1k Resistor](https://amzn.to/2ODEgwS)  
 [(1) Lighted Rocker Switch 12v](https://amzn.to/3sX9zlg)  
 [(1) XT 60 Plug & High Current Switch](https://amzn.to/3ejLoJI)  
@@ -27,8 +27,8 @@
 [(2) Small Double-Sided PCB Board](https://amzn.to/3bxj0ln)  
 [(1) Hatchbox Yellow PLA](https://amzn.to/3t1rbwn)  
 [(1) Hatchbox Black PLA](https://amzn.to/3elUHJ7)   
-[(1) YOYI Purple TPU(https://amzn.to/38qA8r2)]  
-[18AWG Silicone Wire] (https://amzn.to/38qEj6i)  
+[(1) YOYI Purple TPU](https://amzn.to/38qA8r2)  
+[18AWG Silicone Wire](https://amzn.to/38qEj6i)  
 [22AWG Hookup Wire](https://amzn.to/3rzxFCn)  
 [Dupont Jumper Wires](https://amzn.to/3l1k304)  
 [Loctite Threadlocker](https://amzn.to/38ojfxc)  
