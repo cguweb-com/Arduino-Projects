@@ -34,8 +34,8 @@ I'd be happy to answer any questions, and/or receive any type of feedback... hap
 
 [(1) Mega Pro CH340GATmega 2560](https://amzn.to/3epOrjm)  
 [(1) PS2 Receiver & Remote](https://www.robotshop.com/en/lynxmotion-ps2-controller-v4.html)  
-[(1)	12A DC-DC Step Down Buck Converter 4.5V-30V](https://amzn.to/3rzTNMG)  
-[(1) DC-DC Mini Buck Converter 3v-12v](https://amzn.to/2O8npCF)  
+[(1) 12A DC-DC Step Down Buck Converter 4.5V-30V](https://amzn.to/3rzTNMG)  
+[(1) DC-DC Buck Boost Converter XL6009 5-32 V to 1.25-35 V](https://amzn.to/3a39eqg)  
 [(1) Mini Digital DC Voltmeter](https://amzn.to/3sYWd7Y)  
 [(1) ACS712 Current Sensor Module](https://amzn.to/3rzUfum)  
 [(1) MOSFET IRF540N](https://amzn.to/2PKW6P3)  
