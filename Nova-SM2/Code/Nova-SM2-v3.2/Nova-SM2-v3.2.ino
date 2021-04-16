@@ -10,7 +10,7 @@
  *   YouTube Playlist:  https://www.youtube.com/watch?v=00PkTcGWPvo&list=PLcOZNHwM_I2a3YZKf8FtUjJneKGXCfduk
  *   
  *   RELEASE NOTES:
- *      Arduino mega performance: 42% storage / 52% memory
+ *      Arduino mega performance: 41% storage / 48% memory
  *      commented code for github release
  *      replaced string print statements with .print(F("string here")) to reclaim some system memory
  *
@@ -33,11 +33,12 @@
 #define VERSION 3.2
 
 //debug vars for displaying operation runtime data for debugging
-const byte debug = 1;
-const byte debug2 = 0;
-const byte debug3 = 0;
-const byte debug4 = 0;
-const byte plotter = 0;
+const byte debug1 = 1;            //ps2 and general messages
+const byte debug2 = 0;            //debug servo steps
+const byte debug3 = 0;            //ramping and sequencing
+const byte debug4 = 0;            //amperage, battery and serial commands
+const byte debug5 = 0;            //mpu and uss sensors
+const byte plotter = 0;           //plot servo steps, turn off debug1
 
 byte debug_leg = 0;               //default debug leg (3 servos) (changed by serial command input)
 int debug_servo = 0;              //default debug servo (changed by serial command input)
@@ -47,13 +48,13 @@ int debug_spd = 10;               //default speed for debug movements
 
 //activate/deactivate devices
 byte pwm_active = 1;              //activate pwm controller / servos
-byte ps2_active = 0;              //activate PS2 remote control 
-byte serial_active = 1;           //activate serial monitor command input
+byte ps2_active = 1;              //activate PS2 remote control 
+byte serial_active = 0;           //activate serial monitor command input
 byte mpu_active = 0;              //activate MPU6050 
 byte rgb_active = 1;              //activate RGB modules
-byte oled_active = 0;             //activate OLED display
-byte pir_active = 0;              //activate PIR motion sensor
-byte uss_active = 0;              //activate Ultra-Sonic sensors
+byte oled_active = 1;             //activate OLED display
+byte pir_active = 1;              //activate PIR motion sensor
+byte uss_active = 1;              //activate Ultra-Sonic sensors
 byte amp_active = 0;              //activate amperate monitoring
 byte batt_active = 1;             //activate battery level monitoring
 byte buzz_active = 1;             //activate simple tone sounds
@@ -143,11 +144,11 @@ int pir_wait = 0;
 #define L_ECHOPIN 36
 #define R_TRIGPIN 38
 #define R_ECHOPIN 40
-unsigned int ussInterval = 50;
+unsigned int ussInterval = 500;
 unsigned long lastUSSUpdate = 0;
-byte uss_val = 0;
-float durationpulse;
-int distance_tolerance = 5;           //threshold before alarm triggers
+byte uss_in_use = 0;
+int distance_alarm = 50;              //distance to set triggers
+int distance_tolerance = 5;           //threshold before setting triggers
 int distance_l;                       //current distance from left sensor
 int prev_distance_l;                  //previous distance of left sensor to prevent false positives
 int distance_r;                       //current distance from right sensor
@@ -431,16 +432,18 @@ class AsyncServo {
           }
   
           if (debug2 && servoID == debug_servo) {
-            Serial.print(F("sPos / sSpd \t"));
-            Serial.print(servoPos[servoID]);
-            Serial.print(F(" / "));
-            Serial.println(servoSpeed[servoID]);
-          } else if (plotter && servoID == debug_servo) {
-            Serial.print(F("sPos:"));
-            Serial.print(servoPos[servoID]);
-            Serial.print(F("\t"));
-            Serial.print(F("sSpd:"));
-            Serial.println(servoSpeed[servoID]);
+            if (plotter) {
+              Serial.print(F("sPos:"));
+              Serial.print(servoPos[servoID]);
+              Serial.print(F("\t"));
+              Serial.print(F("sSpd:"));
+              Serial.println(servoSpeed[servoID]);
+            } else {
+              Serial.print(F("sPos / sSpd \t"));
+              Serial.print(servoPos[servoID]);
+              Serial.print(F(" / "));
+              Serial.println(servoSpeed[servoID]);
+            }
           }
 
 
@@ -565,15 +568,17 @@ class AsyncServo {
             }
   
             if (debug2 && servoID == debug_servo) {
-              Serial.print(F("sPos / sSpd \t"));
-              Serial.print(servoPos[servoID]);
-              Serial.print(F(" / "));
-              Serial.println(servoSpeed[servoID]);
-            } else if (plotter && servoID == debug_servo) {
-              Serial.print(F("sPos:"));
-              Serial.print(servoPos[servoID]);
-              Serial.print(F("\tsSpd:"));
-              Serial.println(servoSpeed[servoID]);
+              if (plotter) {
+                Serial.print(F("sPos:"));
+                Serial.print(servoPos[servoID]);
+                Serial.print(F("\tsSpd:"));
+                Serial.println(servoSpeed[servoID]);
+              } else {
+                Serial.print(F("sPos / sSpd \t"));
+                Serial.print(servoPos[servoID]);
+                Serial.print(F(" / "));
+                Serial.println(servoSpeed[servoID]);
+              }
             }
 
             //sweep servo by increment in target direction from current position comparison
@@ -677,7 +682,7 @@ void setup() {
   }
   delay(500);
 
-  if (debug) {
+  if (debug1) {
     Serial.println("\n===================================");
     Serial.print(F("NOVA SM2 v"));
     Serial.println(VERSION);
@@ -725,9 +730,9 @@ void setup() {
   //init ps2 controller
   if (ps2_active) {
     if (ps2x.config_gamepad(PS2_CLK, PS2_CMD, PS2_SEL, PS2_DAT, false, false) == 0) {
-      if (debug) Serial.println("Controller OK");
+      if (debug1) Serial.println("Controller OK");
     } else {
-      if (debug) Serial.println("Controller Error");
+      if (debug1) Serial.println("Controller Error");
       ps2_active = 0;
     }
   }
@@ -738,7 +743,7 @@ void setup() {
     pwm1.setOscillatorFrequency(OSCIL_FREQ);
     pwm1.setPWMFreq(SERVO_FREQ);
     delay(50);
-    if (debug) Serial.println("pwm1 Passed Setup");
+    if (debug1) Serial.println("pwm1 Passed Setup");
 
     if (melody_active) {
       play_phrases();
@@ -763,7 +768,7 @@ void setup() {
 
     //initialize servos and populate related data arrays with defaults
     init_home();
-    if (debug) {
+    if (debug1) {
       Serial.print(TOTAL_SERVOS); Serial.println(F(" Servos Initialized"));
     }
 
@@ -834,9 +839,9 @@ void setup() {
     oled_in_use = 0;
     sleep_display(&display);
   } else if (!pwm_active) {
-    if (debug) Serial.print(F("PWM disabled, initializing..."));
+    if (debug1) Serial.print(F("PWM disabled, initializing..."));
     delay(1000);
-    if (debug) Serial.println("Ready!");
+    if (debug1) Serial.println("Ready!");
     if (rgb_active) {
       fade_steps = 400;
       pattern = 3;
@@ -861,14 +866,16 @@ void setup() {
   }
 
   //calc mpu6050 error margins
-  calculate_IMU_error();
-  delay(20);
+  if (mpu_active) {
+    calculate_IMU_error();
+    delay(20);
+  }
 
-  if (debug) Serial.println("Ready!");
-  if (serial_active && debug) {
+  if (debug1) Serial.println("Ready!");
+  if (!plotter && serial_active) {
     delay(1000);
     Serial.println();
-    Serial.println("Type a command code or 'h' for help:");
+    Serial.println("Type a command key or 'h' for help:");
   }
 }
 
@@ -1000,10 +1007,7 @@ void loop() {
   }
 
   if (uss_active) {
-    if (millis() - lastUSSUpdate > ussInterval) {
-      distance_l = get_uss(0);
-      distance_r = get_uss(1);
-    }
+    if (millis() - lastUSSUpdate > ussInterval) uss_check();
   }
 
   if (amp_active) {
@@ -1038,7 +1042,7 @@ void ps2_check() {
 
     if (!move_demo && !move_funplay) {
       if (ps2x.Button(PSB_START)) {
-        if (debug)
+        if (debug1)
           Serial.println("Start Pressed");
         if (ps2_select == 1) {
           if (mpu_active) {
@@ -1062,7 +1066,7 @@ void ps2_check() {
           pir_halt = 1;
         }
       } else if (ps2x.ButtonReleased(PSB_START)) {
-        if (debug)
+        if (debug1)
           Serial.println("Start Released");
         pir_halt = 0;
       }
@@ -1089,7 +1093,7 @@ void ps2_check() {
           }
           noTone(BUZZ);         
         }
-        if (debug) {
+        if (debug1) {
           Serial.print(F("\tSelected ")); Serial.println(ps2_select);
         }
         if (oled_active) {
@@ -1158,17 +1162,17 @@ void ps2_check() {
           if (!move_trot) {
             set_stop();
             move_trot = 1;
-            if (debug)
+            if (debug1)
               Serial.println("move trot");
           }
           x_dir = map(ps2x.Analog(PSS_RX), 0, 255, move_steps_min / 4, move_steps_max / 4);
           move_steps = map(ps2x.Analog(PSS_RY), 0, 255, move_steps_max / 2, move_steps_min / 2);
-          if (debug) {
+          if (debug1) {
             Serial.print(F("x dir: ")); Serial.print(x_dir);
             Serial.print(F("\tmove steps: ")); Serial.println(move_steps);
           }
         } else if (ps2_select == 2) {
-          if (debug)
+          if (debug1)
             Serial.println("march");
           if (!move_march) {
             set_stop();
@@ -1181,14 +1185,14 @@ void ps2_check() {
           }
           x_dir = map(ps2x.Analog(PSS_RX), 0, 255, move_steps_min / 2, move_steps_max / 2);
           y_dir = map(ps2x.Analog(PSS_RY), 0, 255, move_steps_max, move_steps_min);
-          if (debug) {
+          if (debug1) {
             Serial.print(F("x: ")); Serial.print(ps2x.Analog(PSS_RX));
             Serial.print(F("\ty: ")); Serial.print(ps2x.Analog(PSS_RY));
             Serial.print(F("\tx_dir: ")); Serial.print(x_dir);
             Serial.print(F("\ty_dir: ")); Serial.println(y_dir);
           }
         } else if (ps2_select == 3) {
-          if (debug)
+          if (debug1)
             Serial.println("forward");
           if (!move_forward) {
             set_stop();
@@ -1210,7 +1214,7 @@ void ps2_check() {
           if (move_forward) {
             move_forward = 0;
             oled_in_use = 0;
-            if (debug)
+            if (debug1)
               Serial.println("stop forward");
           }
           if (move_march) {
@@ -1228,11 +1232,11 @@ void ps2_check() {
         if (ps2_select == 1) {
           if (!move_right) {
             move_right = 1;
-            if (debug)
+            if (debug1)
               Serial.println("move right");
           }
           x_dir = map(ps2x.Analog(PSS_RX), 0, 255, move_x_steps[0], move_x_steps[1]);
-          if (debug) {
+          if (debug1) {
             Serial.print(F("move steps: ")); Serial.println(move_steps);
           }
         }
@@ -1240,7 +1244,7 @@ void ps2_check() {
         if (ps2_select == 1) {
           if (move_right) {
             move_right = 0;
-            if (debug)
+            if (debug1)
               Serial.println("stop move right");
           }
         } else if (ps2_select == 2) {
@@ -1252,11 +1256,11 @@ void ps2_check() {
         if (ps2_select == 1) {
           if (!move_left) {
             move_left = 1;
-            if (debug)
+            if (debug1)
               Serial.println("move left");
           }
           x_dir = map(ps2x.Analog(PSS_RX), 0, 255, move_x_steps[1], move_x_steps[0]);
-          if (debug) {
+          if (debug1) {
             Serial.print(F("move steps: ")); Serial.println(move_steps);
           }
         }
@@ -1264,7 +1268,7 @@ void ps2_check() {
         if (ps2_select == 1) {
           if (move_left) {
             move_left = 0;
-            if (debug)
+            if (debug1)
               Serial.println("stop move left");
           }
         } else if (ps2_select == 2) {
@@ -1276,7 +1280,7 @@ void ps2_check() {
         if (ps2_select == 1 || ps2_select == 2 || ps2_select == 3 || ps2_select == 4) {
           if (!ps2x.Button(PSB_L1) && !ps2x.Button(PSB_L2) && !ps2x.Button(PSB_R1) && !ps2x.Button(PSB_R2)) {
             set_stop();
-            if (debug)
+            if (debug1)
               Serial.println("stay");
             if (rgb_active) {
               fade_steps = 400;
@@ -1316,16 +1320,16 @@ void ps2_check() {
           if (!move_roll) {
             set_stop();
             move_roll = 1;
-            if (debug)
+            if (debug1)
               Serial.println("move roll");
           }
           move_steps = map(ps2x.Analog(PSS_RY), 0, 255, move_steps_max, move_steps_min);
-          if (debug) {
+          if (debug1) {
             Serial.print(F("move steps: ")); Serial.println(move_steps);
           }
         } else if (ps2_select == 2) {
           set_stop();
-          if (debug)
+          if (debug1)
             Serial.println("sit");
           if (rgb_active) {
             fade_steps = 400;
@@ -1339,7 +1343,7 @@ void ps2_check() {
         if (ps2_select == 1) {
           if (move_roll) {
             move_roll = 0;
-            if (debug)
+            if (debug1)
               Serial.println("stop roll");
           }
         }
@@ -1350,17 +1354,17 @@ void ps2_check() {
           if (!move_pitch) {
             set_stop();
             move_pitch = 1;
-            if (debug)
+            if (debug1)
               Serial.println("move pitch");
           }
           x_dir = map(ps2x.Analog(PSS_RX), 0, 255, move_steps_min / 2, move_steps_max / 2);
           move_steps = map(ps2x.Analog(PSS_RY), 0, 255, move_steps_max / 3, move_steps_min / 3);
-          if (debug) {
+          if (debug1) {
             Serial.print(F("move steps: ")); Serial.println(move_steps);
           }
         } else if (ps2_select == 2) {
           set_stop();
-          if (debug)
+          if (debug1)
             Serial.println("kneel");
           start_stop = 0;
           set_kneel();
@@ -1369,7 +1373,7 @@ void ps2_check() {
         if (ps2_select == 1) {
           if (move_pitch) {
             move_pitch = 0;
-            if (debug)
+            if (debug1)
               Serial.println("stop pitch");
           }
         }
@@ -1380,16 +1384,16 @@ void ps2_check() {
           if (!move_roll_body) {
             set_stop();
             move_roll_body = 1;
-            if (debug)
+            if (debug1)
               Serial.println("move roll_body");
           }
           move_steps = map(ps2x.Analog(PSS_RY), 0, 255, move_steps_max / 2, move_steps_min / 2);
-          if (debug) {
+          if (debug1) {
             Serial.print(F("move steps: ")); Serial.println(move_steps);
           }
         } else if (ps2_select == 2) {
           set_stop();
-          if (debug)
+          if (debug1)
             Serial.println("crouch");
           if (rgb_active) {
             fade_steps = 400;
@@ -1403,7 +1407,7 @@ void ps2_check() {
         if (ps2_select == 1) {
           if (move_roll_body) {
             move_roll_body = 0;
-            if (debug)
+            if (debug1)
               Serial.println("stop roll_body");
           }
         }
@@ -1414,16 +1418,16 @@ void ps2_check() {
           if (!move_pitch_body) {
             set_stop();
             move_pitch_body = 1;
-            if (debug)
+            if (debug1)
               Serial.println("move pitch_body");
           }
           move_steps = map(ps2x.Analog(PSS_RY), 0, 255, move_steps_max, move_steps_min);
-          if (debug) {
+          if (debug1) {
             Serial.print(F("move steps: ")); Serial.println(move_steps);
           }
         } else if (ps2_select == 2) {
           set_stop();
-          if (debug)
+          if (debug1)
             Serial.println("lay");
           if (rgb_active) {
             pattern = 1;
@@ -1437,7 +1441,7 @@ void ps2_check() {
         if (ps2_select == 1) {
           if (move_pitch_body) {
             move_pitch_body = 0;
-            if (debug)
+            if (debug1)
               Serial.println("stop pitch_body");
           }
         }
@@ -1450,14 +1454,14 @@ void ps2_check() {
           set_stop();
           if (!move_y_axis) {
             move_y_axis = 1;
-            if (debug)
+            if (debug1)
               Serial.println("move y_axis");
           }
         } else if (ps2_select == 2) {
           set_stop();
           if (!move_wman) {
             move_wman = 1;
-            if (debug)
+            if (debug1)
               Serial.println("move wman");
           }
         }
@@ -1465,13 +1469,13 @@ void ps2_check() {
         if (ps2_select == 1) {
           if (move_y_axis) {
             move_y_axis = 0;
-            if (debug)
+            if (debug1)
               Serial.println("stop y_axis");
           }
         } else if (ps2_select == 2) {
           if (move_wman) {
             move_wman = 0;
-            if (debug)
+            if (debug1)
               Serial.println("stop wman");
           }
         }
@@ -1481,13 +1485,13 @@ void ps2_check() {
       if (ps2x.Button(PSB_TRIANGLE)) {
         if (ps2_select == 1) {
           move_steps = map(ps2x.Analog(PSS_RY), 0, 255, move_y_steps[0], move_y_steps[1]);
-          if (debug) {
+          if (debug1) {
             Serial.print(F("move steps: ")); Serial.print(move_steps);
           }
           if (move_steps < 0) {
             move_steps = map(move_steps, -150, 150, move_x_steps[0], move_x_steps[1]);
           }
-          if (debug) {
+          if (debug1) {
             Serial.print(F(" / ")); Serial.println(move_steps);
           }
         }
@@ -1498,7 +1502,7 @@ void ps2_check() {
           set_stop();
           if (!move_x_axis) {
             move_x_axis = 1;
-            if (debug)
+            if (debug1)
               Serial.println("move x_axis");
           }
         }
@@ -1506,7 +1510,7 @@ void ps2_check() {
         if (ps2_select == 1) {
           if (move_x_axis) {
             move_x_axis = 0;
-            if (debug)
+            if (debug1)
               Serial.println("stop x_axis");
           }
         }
@@ -1516,34 +1520,34 @@ void ps2_check() {
       if (ps2x.Button(PSB_CROSS)) {
         if (ps2_select == 1) {
           move_steps = map(ps2x.Analog(PSS_RY), 0, 255, move_x_steps[0], move_x_steps[1]);
-          if (debug) {
+          if (debug1) {
             Serial.print(F("move steps: ")); Serial.println(move_steps);
           }
         }
       }
   
       if (ps2x.ButtonPressed(PSB_CIRCLE)) {
-        if (debug) {
+        if (debug1) {
           Serial.println("Circle");
           Serial.print(F("speed up +1 : "));
         }
         spd -= 1;
         if (spd < max_spd) spd = max_spd;
         set_speed();
-        if (debug) {
+        if (debug1) {
           Serial.print(spd);
         }
       }
 
       if (ps2x.ButtonPressed(PSB_SQUARE)) {
-        if (debug) {
+        if (debug1) {
           Serial.println("Square");
           Serial.print(F("speed down -1 : "));
         }
         spd += 1;
         if (spd > min_spd) spd = min_spd;
         set_speed();
-        if (debug)
+        if (debug1)
           Serial.println(spd);
       }
   
@@ -1562,7 +1566,7 @@ void ps2_check() {
                 ms -= 1;
               }
               update_sequencer(RF, RFC, spd, ms, 0, 0);
-              if (debug) {
+              if (debug1) {
                 Serial.print(F("RFC: ")); Serial.println(limit_target(RFC, ms, 0));
               }
             }
@@ -1575,7 +1579,7 @@ void ps2_check() {
                 ms -= 1;
               }
               update_sequencer(RF, RFF, spd, ms, 0, 0);
-              if (debug) {
+              if (debug1) {
                 Serial.print(F("RFF: ")); Serial.println(limit_target(RFF, ms, 0));
               }
             }
@@ -1588,7 +1592,7 @@ void ps2_check() {
                 ms -= 1;
               }
               update_sequencer(RF, RFT, spd, ms, 0, 0);
-              if (debug) {
+              if (debug1) {
                 Serial.print(F("RFT: ")); Serial.println(limit_target(RFT, ms, 0));
               }
             }
@@ -1615,7 +1619,7 @@ void ps2_check() {
               } else if (ps2x.Button(PSB_CROSS)) {
                 ms -= 1;
               }
-              if (debug) {
+              if (debug1) {
                 Serial.print(F("LFC: ")); Serial.println(limit_target(LFC, ms, 0));
               }
               update_sequencer(LF, LFC, spd, ms, 0, 0);
@@ -1629,7 +1633,7 @@ void ps2_check() {
                 ms -= 1;
               }
               update_sequencer(LF, LFF, spd, ms, 0, 0);
-              if (debug) {
+              if (debug1) {
                 Serial.print(F("LFF: ")); Serial.println(limit_target(LFF, ms, 0));
               }
             }
@@ -1642,7 +1646,7 @@ void ps2_check() {
                 ms -= 1;
               }
               update_sequencer(LF, LFT, spd, ms, 0, 0);
-              if (debug) {
+              if (debug1) {
                 Serial.print(F("LFT: ")); Serial.println(limit_target(LFT, ms, 0));
               }
             }
@@ -1669,7 +1673,7 @@ void ps2_check() {
                 ms -= 1;
               }
               update_sequencer(RR, RRC, spd, ms, 0, 0);
-              if (debug) {
+              if (debug1) {
                 Serial.print(F("RRC: ")); Serial.println(limit_target(RRC, ms, 0));
               }
             }
@@ -1682,7 +1686,7 @@ void ps2_check() {
                 ms -= 1;
               }
               update_sequencer(RR, RRF, spd, ms, 0, 0);
-              if (debug) {
+              if (debug1) {
                 Serial.print(F("RRF: ")); Serial.println(limit_target(RRF, ms, 0));
               }
             }
@@ -1695,14 +1699,14 @@ void ps2_check() {
                 ms -= 1;
               }
               update_sequencer(RR, RRT, spd, ms, 0, 0);
-              if (debug) {
+              if (debug1) {
                 Serial.print(F("RRT: ")); Serial.println(limit_target(RRT, ms, 0));
               }
             }
           } else if (ps2x.Button(PSB_PAD_LEFT)) {
             if (!activeServo[RFC] && !activeServo[RFT]) {
               move_steps = map(ps2x.Analog(PSS_RY), 0, 255, move_c_steps[0] / 1.5, move_c_steps[1] / 1.5);
-              if (debug) {
+              if (debug1) {
                 Serial.print(F("T/C move steps: ")); Serial.println(move_steps);
               }
               update_sequencer(LF, LFT, spd, (servoHome[LFT] + move_steps), 0, 0);
@@ -1728,7 +1732,7 @@ void ps2_check() {
                 ms -= 1;
               }
               update_sequencer(LR, LRC, spd, ms, 0, 0);
-              if (debug) {
+              if (debug1) {
                 Serial.print(F("LRC: ")); Serial.println(limit_target(LRC, ms, 0));
               }
             }
@@ -1741,7 +1745,7 @@ void ps2_check() {
                 ms -= 1;
               }
               update_sequencer(LR, LRF, spd, ms, 0, 0);
-              if (debug) {
+              if (debug1) {
                 Serial.print(F("LRF: ")); Serial.println(limit_target(LRF, ms, 0));
               }
             }
@@ -1754,7 +1758,7 @@ void ps2_check() {
                 ms -= 1;
               }
               update_sequencer(LR, LRT, spd, ms, 0, 0);
-              if (debug) {
+              if (debug1) {
                 Serial.print(F("LRT: ")); Serial.println(limit_target(LRT, ms, 0));
               }
             }
@@ -1806,7 +1810,7 @@ void pir_check() {
           pattern = 5;
           rgb_check(pattern);
         }
-        if (debug)
+        if (debug1)
           Serial.println("Motion detected!");
   
         set_stop();
@@ -1851,16 +1855,9 @@ void pir_check() {
 
         if (oled_active) {
           oled_in_use = 1;
-          display.clearDisplay();
-          display.setTextSize(2);
-          display.setTextColor(WHITE);
-          display.setCursor(0, 0);
-          display.println("INTRUDER");
-          display.setCursor(0, 18);
-          display.println("ALERT!");
-          display.display();
+          print_command(4);
         } else {
-          if (debug)
+          if (debug1)
             Serial.println("INTRUDER ALERT!");
         }
 
@@ -1889,21 +1886,9 @@ void pir_check() {
       pir_state = LOW;
       pir_wait = 100;
       if (oled_active) {
-        display.clearDisplay();
-        display.setTextSize(2);
-        display.setTextColor(WHITE);
-        display.setCursor(0, 0);
-        display.println("ALERT");
-        display.setCursor(0, 18);
-        display.println("COMPLETE!");
-        display.display();
-        delay(2000);
-        oled_in_use = 0;
-        display.clearDisplay();
-        display.println("");
-        display.display();
+        print_command(5);
       } else {
-        if (debug)
+        if (debug1)
           Serial.println("ALERT COMPLETE!");
       }
 
@@ -1937,77 +1922,88 @@ void pir_check() {
   lastPIRUpdate = millis();
 }
 
+
 /*
    -------------------------------------------------------
-   Get Ultrasonic Reading(s)
+   Check Ultrasonic Reading
     :provide general description and explanation here
    -------------------------------------------------------
 */
-int get_uss(int pid) {
+int uss_check() {
+  float durationpulse;
 
-//DEV NOTE: the use of uss_val doesn't seem right... it doesn't read like it
-//          will properly detect both sensors, but one at a time. Then again,
-//          the only times they should both trigger would be: a) the detected
-//          object is at the sensor intersection point, or b) they are detecting
-//          different objects
-//
-  uss_val = 0;
+  if (!uss_in_use) {
+    uss_in_use = 1;
 
-  if (!pid) {
-    digitalWrite(L_TRIGPIN, LOW);
-    delayMicroseconds(2);
-    digitalWrite(L_TRIGPIN, HIGH);
-    delayMicroseconds(8);
-    digitalWrite(L_TRIGPIN, LOW);
-    durationpulse = pulseIn(L_ECHOPIN, HIGH);
-    distance_l = durationpulse * 0.034 / 2;
-
-    if (distance_l != prev_distance_l && ((distance_l > (prev_distance_l + distance_tolerance)) || (distance_l < (prev_distance_l - distance_tolerance)))) {
-      prev_distance_l = distance_l;
-      uss_val = 1;
-    }
-  } else {
+    //check right sensor
     digitalWrite(R_TRIGPIN, LOW);
     delayMicroseconds(2);
     digitalWrite(R_TRIGPIN, HIGH);
     delayMicroseconds(8);
     digitalWrite(R_TRIGPIN, LOW);
     durationpulse = pulseIn(R_ECHOPIN, HIGH);
-    distance_r = durationpulse * 0.034 / 2;
+    int dist_r = durationpulse * 0.034 / 2;
 
-    if (distance_r != prev_distance_r && ((distance_r > (prev_distance_r + distance_tolerance)) || (distance_r < (prev_distance_r - distance_tolerance)))) {
-      prev_distance_r = distance_r;
-      uss_val = 2;
+    if (dist_r != prev_distance_r && ((dist_r > (prev_distance_r + distance_tolerance)) || (dist_r < (prev_distance_r - distance_tolerance)))) {
+      distance_r = prev_distance_r = dist_r;
     }
+
+    //check left sensor
+    digitalWrite(L_TRIGPIN, LOW);
+    delayMicroseconds(2);
+    digitalWrite(L_TRIGPIN, HIGH);
+    delayMicroseconds(8);
+    digitalWrite(L_TRIGPIN, LOW);
+    durationpulse = pulseIn(L_ECHOPIN, HIGH);
+    int dist_l = durationpulse * 0.034 / 2;
+
+    if (dist_l != prev_distance_l && ((dist_l > (prev_distance_l + distance_tolerance)) || (dist_l < (prev_distance_l - distance_tolerance)))) {
+      distance_l = prev_distance_l = dist_l;
+    }
+
+    if (debug5 && (dist_r < distance_alarm || dist_l < distance_alarm)) {
+      if (oled_active && !oled_in_use) {
+        display.stopscroll();
+        display.clearDisplay();
+        display.setTextSize(2);
+        display.setTextColor(WHITE);
+        display.setCursor(0, 0);
+        display.print("Lt: ");
+        display.println(distance_l);
+        display.setCursor(0, 15);
+        display.print("Rt: ");
+        display.println(distance_r);
+        display.display();
+      } else if (plotter) {
+        Serial.print(F("Lt:"));
+        if (distance_l > (distance_alarm*5)) {
+          Serial.print((distance_alarm*5));
+        } else {
+          Serial.print(distance_l);
+        }
+        Serial.print(F("\t"));
+        Serial.print(F("Rt:"));
+        if (distance_r > (distance_alarm*5)) {
+          Serial.print((distance_alarm*5));
+        } else {
+          Serial.print(distance_r);
+        }
+        Serial.print(F("\t"));
+        Serial.println();
+      } else {
+        Serial.print(F("Dist Right: "));
+        Serial.println(distance_r);
+        Serial.print(F("Dist Left: "));
+        Serial.println(distance_l);
+      }
+    }
+
+    uss_in_use = 0;
   }
 
-  if (uss_val && oled_active && !oled_in_use) {
-    // Print the values on the serial monitor
-    display.stopscroll();
-    display.clearDisplay();
-    display.setTextSize(2);
-    display.setTextColor(WHITE);
-    display.setCursor(0, 0);
-    if (uss_val == 1) {
-      display.print("Dist Left: ");
-      display.println(distance_l);
-    } else {
-      display.print("Dist Right: ");
-      display.println(distance_r);
-    }
-    display.display();
-  } else {
-    if (uss_val == 1) {
-      Serial.print(F("Dist Left: "));
-      Serial.println(distance_l);
-      delay(1500);
-    } else {
-      Serial.print(F("Dist Right: "));
-      Serial.println(distance_r);
-      delay(1500);
-    }
-  }
+  lastUSSUpdate = millis();
 }
+
 
 /*
    -------------------------------------------------------
@@ -2056,6 +2052,8 @@ void get_mpu() {
   mpitch = (0.96 * gyroAngleY + 0.04 * accAngleY);
 
   set_axis(mroll, mpitch);
+
+  lastMPUUpdate = millis();
 }
 
 /*
@@ -2104,7 +2102,7 @@ void calculate_IMU_error() {
   GyroErrorZ = GyroErrorZ / 200;
 
   // Print the error values on the Serial Monitor
-  if (debug2) {
+  if (debug5) {
     Serial.print(F("AccErrorX: "));
     Serial.println(AccErrorX);
     Serial.print(F("AccErrorY: "));
@@ -2316,23 +2314,50 @@ void init_home() {
       servoRamp[i][j] = 0;
     }
 
+    servoSequence[i] = 0;
     servoDelay[i][0] = 0;
     servoDelay[i][1] = 0;
     servoStep[i] = 0;
     servoSwitch[i] = 0;
-    servoSpeed[i] = spd;
-    servoPos[i] = servoHome[i];
-    targetPos[i] = servoHome[i];
-    if (servoSetup[i][0] == 1) {
-      pwm1.setPWM(servoSetup[i][1], 0, servoHome[i]);
-    }
-    delay(250);
+    servoSpeed[i] = (spd * 1.5);
   }
 
-  for (int i = 0; i < TOTAL_LEGS; i++) {
-    servoSequence[i] = 0;
-  }
+  //set crouched femurs
+  servoPos[RFF] = servoLimit[RFF][0] + 30;
+  pwm1.setPWM(servoSetup[RFF][1], 0, servoPos[RFF]);
+  servoPos[LRF] = servoLimit[LRF][0] - 30;
+  pwm1.setPWM(servoSetup[LRF][1], 0, servoPos[LRF]);
+  servoPos[RRF] = servoLimit[RRF][0] + 30;
+  pwm1.setPWM(servoSetup[RRF][1], 0, servoPos[RRF]);
+  servoPos[LFF] = servoLimit[LFF][0] - 30;
+  pwm1.setPWM(servoSetup[LFF][1], 0, servoPos[LFF]);
+  delay(1000);
+
+  //set crouched coaxes
+  servoPos[RFC] = servoHome[RFC];
+  pwm1.setPWM(servoSetup[RFC][1], 0, servoHome[RFC]);
+  servoPos[LRC] = servoHome[LRC];
+  pwm1.setPWM(servoSetup[LRC][1], 0, servoHome[LRC]);
+  servoPos[RRC] = servoHome[RRC];
+  pwm1.setPWM(servoSetup[RRC][1], 0, servoHome[RRC]);
+  servoPos[LFC] = servoHome[LFC];
+  pwm1.setPWM(servoSetup[LFC][1], 0, servoHome[LFC]);
+  delay(1000);
+
+  //set crouched tibias
+  servoPos[RFT] = servoLimit[RFT][1];
+  pwm1.setPWM(servoSetup[RFT][1], 0, servoLimit[RFT][1]);
+  servoPos[LRT] = servoLimit[LRT][1];
+  pwm1.setPWM(servoSetup[LRT][1], 0, servoLimit[LRT][1]);
+  servoPos[RRT] = servoLimit[RRT][1];
+  pwm1.setPWM(servoSetup[RRT][1], 0, servoLimit[RRT][1]);
+  servoPos[LFT] = servoLimit[LFT][1];
+  pwm1.setPWM(servoSetup[LFT][1], 0, servoLimit[LFT][1]);
+  delay(1000);
+
+  set_stay();
 }
+
 
 void detach_all() {
   if (debug4) {
@@ -4823,7 +4848,7 @@ void delay_sequences() {
           move_loops = 6;
           move_steps = 20;
           move_x_axis = 1;
-          if (debug)
+          if (debug1)
             Serial.print("move x");
         } else if (move_delay_sequences[i] == 2) {
           set_home();
@@ -4833,7 +4858,7 @@ void delay_sequences() {
           move_loops = 3;
           move_steps = 70;
           move_y_axis = 1;
-          if (debug)
+          if (debug1)
             Serial.print("move y large");
         } else if (move_delay_sequences[i] == 13) {
           spd = 1;
@@ -4842,7 +4867,7 @@ void delay_sequences() {
           move_loops = 10;
           move_steps = 15;
           move_y_axis = 1;
-          if (debug)
+          if (debug1)
             Serial.print("move y short");
         } else if (move_delay_sequences[i] == 3) {
           start_stop = 1;
@@ -4851,7 +4876,7 @@ void delay_sequences() {
           move_loops = 10;
           move_steps = 25;
           move_pitch_body = 1;
-          if (debug)
+          if (debug1)
             Serial.print("move pitch_body");
         } else if (move_delay_sequences[i] == 4) {
           use_ramp = 0;
@@ -4861,7 +4886,7 @@ void delay_sequences() {
           move_loops = 10;
           move_steps = 25;
           move_pitch = 1;
-          if (debug)
+          if (debug1)
             Serial.print("move pitch");
         } else if (move_delay_sequences[i] == 5) {
           use_ramp = 1;
@@ -4871,7 +4896,7 @@ void delay_sequences() {
           move_loops = 6;
           move_steps = 20;
           move_roll_body = 1;
-          if (debug)
+          if (debug1)
             Serial.print("move rollb");
         } else if (move_delay_sequences[i] == 6) {
           set_home();
@@ -4881,7 +4906,7 @@ void delay_sequences() {
           move_loops = 6;
           move_steps = 30;
           move_roll = 1;
-          if (debug)
+          if (debug1)
             Serial.print("move roll");
         } else if (move_delay_sequences[i] == 7) {
           set_home();
@@ -4894,24 +4919,24 @@ void delay_sequences() {
           }
           start_stop = 1;
           move_wake = 1;
-          if (debug)
+          if (debug1)
             Serial.print("move wake");
         } else if (move_delay_sequences[i] == 8) {
           start_stop = 0;
           set_crouch();
-          if (debug)
+          if (debug1)
             Serial.print("crouch");
         } else if (move_delay_sequences[i] == 9) {
           start_stop = 0;
           set_sit();
-          if (debug)
+          if (debug1)
             Serial.print("sit");
         } else if (move_delay_sequences[i] == 10) {
           start_stop = 1;
           move_loops = 1;
           move_steps = 0;
           move_x_axis = 1;
-          if (debug)
+          if (debug1)
             Serial.print("move x 1");
         } else if (move_delay_sequences[i] == 11) {
           set_home();
@@ -4920,12 +4945,12 @@ void delay_sequences() {
           x_dir = 0;
           move_loops = 16;
           move_march = 1;
-          if (debug)
+          if (debug1)
             Serial.print("move march");
         } else if (move_delay_sequences[i] == 12) {
           set_home();
           set_kneel();
-          if (debug)
+          if (debug1)
             Serial.print("move kneel");
         } else if (move_delay_sequences[i] == 14) {
           spd = 1;
@@ -4934,7 +4959,7 @@ void delay_sequences() {
           move_loops = 1;
           move_steps = 30;
           move_look_left = 1;
-          if (debug)
+          if (debug1)
             Serial.print("move look_left");
         } else if (move_delay_sequences[i] == 15) {
           spd = 1;
@@ -4943,12 +4968,17 @@ void delay_sequences() {
           move_loops = 1;
           move_steps = 30;
           move_look_right = 1;
-          if (debug)
+          if (debug1)
             Serial.print("move look_right");
+        } else if (move_delay_sequences[i] == 16) {
+          start_stop = 0;
+          set_stay();
+          if (debug1)
+            Serial.print("stay");
         }
   
         moveDelayInterval = move_delays[i];
-        if (debug) {
+        if (debug1) {
           Serial.print("\ti: ");Serial.print(i);Serial.print("\tmove int: ");Serial.println(moveDelayInterval);
         }
         move_delay_sequences[i] = 0;
@@ -4992,11 +5022,11 @@ void delay_sequences() {
       targetPos[LFT] = servoSweep[LFT][1];
       activeSweep[LFT] = 1;
 
-      move_funplay = 1;
-      if (debug)
-        Serial.print("move funplay");
+//      move_funplay = 1;
+      if (debug1)
+//        Serial.print("move funplay");
 
-      if (debug) {
+      if (debug1) {
         Serial.println("\treset DS");
       }
     }  
@@ -5138,14 +5168,25 @@ void print_command(int cmd) {
     display.println("Testing"); //test
     display.setTextSize(3);
     display.setTextColor(WHITE);
-    display.setCursor(0, 12);
-    display.println("OLED!"); //test
+    display.setCursor(0, 13);
+    display.println("OLED!");
   } else if (cmd == 1) {
     display.println("Grrrrrrr!"); //wake
   } else if (cmd == 2) {
     display.println("Stay!"); //stay
   } else if (cmd == 3) {
     display.println("March!"); //march
+  } else if (cmd == 4) {
+    display.println("INTRUDER"); //intruder alert
+    display.setTextSize(3);
+    display.setCursor(0, 15);
+    display.println("ALERT!");
+  } else if (cmd == 5) {
+    display.println("ALERT");
+    display.setCursor(0, 19);
+    display.println("COMPLETE!");
+display.display();
+delay(3000);
   } else if (cmd == 101) {
     display.println("Mode 1"); //select 1
   } else if (cmd == 102) {
@@ -5156,8 +5197,9 @@ void print_command(int cmd) {
     display.println("Mode 4"); //select 4
   }
   display.display();
+//message dissappear too fast to read sometimes...
 //need to create state machine for this, to add a user-read-time delay here 
-//so we can clear the display afterwards (ie: globalize "cmd")
+//so we can clear the display afterwards and go to sleep (ie: globalize "cmd")
 //  display.clearDisplay();
 //  sleep_display(&display);
 }
@@ -5188,60 +5230,60 @@ void serial_check() {
 
     switch (ByteReceived) {
       case '0':
-        Serial.println("stop!");
+        if (!plotter) Serial.println("stop!");
         set_stop_active();
         set_home();
         break;    
       case 91:
-        Serial.println("move_steps -5");
+        if (!plotter) Serial.println("move_steps -5");
         if (move_steps > move_steps_min) {
           move_steps -= 2;
         }
         break;
       case 93:
-        Serial.println("move_steps +5");
+        if (!plotter) Serial.println("move_steps +5");
         if (move_steps < move_steps_max) {
           move_steps += 2;
         }
         break;
       case 59:
-        Serial.println("y_dir -5");
+        if (!plotter) Serial.println("y_dir -5");
         if (y_dir > move_y_steps[0]) {
           y_dir -= 2;
         }
-        Serial.print("-y_dir ");Serial.println(y_dir);
+        if (!plotter) { Serial.print("-y_dir ");Serial.println(y_dir); }
         break;
       case 39:
-        Serial.println("y_dir +5");
+        if (!plotter) Serial.println("y_dir +5");
         if (y_dir < move_y_steps[1]) {
           y_dir += 2;
         }
-        Serial.print("+y_dir ");Serial.println(y_dir);
+        if (!plotter) { Serial.print("+y_dir ");Serial.println(y_dir); }
         break;
       case 46:
-        Serial.println("x_dir -5");
+        if (!plotter) Serial.println("x_dir -5");
         if (x_dir > move_x_steps[0]) {
           x_dir -= 2;
         }
-        Serial.print("-x_dir ");Serial.println(x_dir);
+        if (!plotter) { Serial.print("-x_dir ");Serial.println(x_dir); }
         break;
       case 47:
         if (x_dir < move_x_steps[1]) {
           x_dir += 2;
         }
-        Serial.print("+x_dir ");Serial.println(x_dir);
+        if (!plotter) { Serial.print("+x_dir ");Serial.println(x_dir); }
         break;
       case 45:
         if (debug_servo > 0) {
           debug_servo--;
         }
-        Serial.print("set debug servo ");Serial.println(debug_servo);
+        if (!plotter) { Serial.print("set debug servo ");Serial.println(debug_servo); }
         break;
       case 61:
         if (debug_servo < (TOTAL_SERVOS-1)) {
           debug_servo++;
         }
-        Serial.print("set debug servo ");Serial.println(debug_servo);
+        if (!plotter) { Serial.print("set debug servo ");Serial.println(debug_servo); }
         break;
       case 92:
         if (debug_leg < (TOTAL_LEGS-1)) {
@@ -5249,56 +5291,58 @@ void serial_check() {
         } else {
           debug_leg = 0;
         }
-        Serial.print("set debug leg ");Serial.println(debug_leg);
+        if (!plotter) { Serial.print("set debug leg ");Serial.println(debug_leg); }
         break;
       case '1':
-        Serial.println("set speed 1");
+        if (!plotter) Serial.println("set speed 1");
         spd = 1;
         set_speed();
         break;
       case '2':
-        Serial.println("set speed 5");
+        if (!plotter) Serial.println("set speed 5");
         spd = 5;
         set_speed();
         break;
       case '3':
-        Serial.println("set speed 15");
+        if (!plotter) Serial.println("set speed 15");
         spd = 15;
         set_speed();
         break;
       case '4':
-        Serial.println("set speed 30");
+        if (!plotter) Serial.println("set speed 30");
         spd = 30;
         set_speed();
         break;
       case 'z':
-        Serial.print("set mpu ");
+        if (!plotter) Serial.print("set mpu ");
         if (mpu_active) {
           mpu_active = 0;
-          Serial.println("off");
+          if (!plotter) Serial.println("off");
         } else {
           mpu_active = 1;
-          Serial.println("on");
+          if (!plotter) Serial.println("on");
         }
         break;
       case 'o':
         if (oled_active) {
-          Serial.println("test OLED");
+          if (!plotter) Serial.println("test OLED");
           print_command(0);
+        } else {
+          if (!plotter) Serial.println("OLED inactive");
         }
         break;
       case 'd':
-        Serial.println("demo");
+        if (!plotter) Serial.println("demo");
         run_demo();
         break;
       case 't':
-        Serial.println("trot");
+        if (!plotter) Serial.println("trot");
         move_steps = 30;
         x_dir = 0;
         move_trot = 1;
         break;
       case 'm':
-        Serial.println("march");
+        if (!plotter) Serial.println("march");
         spd = 32;
         set_speed();
         y_dir = 0;
@@ -5307,7 +5351,7 @@ void serial_check() {
         move_march = 1;
         break;
       case 'f':
-        Serial.println("march_forward");
+        if (!plotter) Serial.println("march_forward");
         spd = 32;
         set_speed();
         y_dir = 10;
@@ -5316,7 +5360,7 @@ void serial_check() {
         move_march = 1;
         break;
       case 'b':
-        Serial.println("march_backward");
+        if (!plotter) Serial.println("march_backward");
         spd = 32;
         set_speed();
         y_dir = -10;
@@ -5325,67 +5369,67 @@ void serial_check() {
         move_march = 1;
         break;
       case 's':
-        Serial.println("stay");
+        if (!plotter) Serial.println("stay");
         set_stay();
         break;
       case 'i':
-        Serial.println("sit");
+        if (!plotter) Serial.println("sit");
         set_sit();
         break;
       case 'k':
-        Serial.println("kneel");
+        if (!plotter) Serial.println("kneel");
         set_kneel();
         break;
       case 'c':
-        Serial.println("crouch");
-         set_crouch();
+        if (!plotter) Serial.println("crouch");
+        set_crouch();
         break;
       case 'l':
-        Serial.println("lay");
+        if (!plotter) Serial.println("lay");
         set_lay();
         break;
       case 'r':
-        Serial.println("roll");
+        if (!plotter) Serial.println("roll");
         move_steps = 30;
         x_dir = 0;
         move_roll = 1;
         break;
       case 'p':
-        Serial.println("pitch");
+        if (!plotter) Serial.println("pitch");
         move_steps = 30;
         x_dir = 0;
         move_pitch = 1;
         break;
       case 'q':
-        Serial.println("roll_body");
+        if (!plotter) Serial.println("roll_body");
         move_steps = 30;
         x_dir = 0;
         move_roll_body = 1;
         break;
       case 'n':
-        Serial.println("pitch_body");
+        if (!plotter) Serial.println("pitch_body");
         move_steps = 30;
         x_dir = 0;
         move_pitch_body = 1;
         break;
       case 'w':
-        Serial.println("wman");
+        if (!plotter) Serial.println("wman");
         spd = 3;
         set_speed();
         move_wman = 1;
         break;
       case 'y':
-        Serial.println("y_axis");
+        if (!plotter) Serial.println("y_axis");
         move_y_axis = 1;
         y_axis();
         break;
       case 'x':
-        Serial.println("x_axis");
+        if (!plotter) Serial.println("x_axis");
         move_x_axis = 1;
         x_axis();
         break;
       case 'u':
-        Serial.println("look_left");
+        if (!plotter) Serial.println("look_left");
         spd = 1;
         start_stop = 1;
         move_loops = 1;
@@ -5393,7 +5437,7 @@ void serial_check() {
         move_look_left = 1;
         break;
       case 'j':
-        Serial.println("look_right");
+        if (!plotter) Serial.println("look_right");
         spd = 1;
         start_stop = 1;
         move_loops = 1;
@@ -5401,11 +5445,24 @@ void serial_check() {
         move_look_right = 1;
         break;
       case 'a':
-        Serial.println("funplay");
-        move_funplay = 1;
+        if (!plotter) Serial.println("wake");
+        if (!activeServo[RFF] && !activeServo[LFF] && !activeServo[RRF] && !activeServo[LRF]) {
+          spd = 1;
+          set_speed();
+          move_loops = 2;
+          move_switch = 2;
+          for (int i = 0; i < TOTAL_SERVOS; i++) {
+            servoPos[i] = servoHome[i];
+          }
+          start_stop = 1;
+          move_wake = 1;
+        }
+        break;
+      case 'v':
+        if (!plotter) Serial.println("[empty]");
         break;
       case '5':
-        Serial.println("sweep tibias");
+        if (!plotter) Serial.println("sweep tibias");
         use_ramp = 0;
         for (int i = 0; i < TOTAL_SERVOS; i++) {
           if (is_tibia(i)) {
@@ -5419,7 +5476,7 @@ void serial_check() {
         }
         break;
       case '6':
-        Serial.println("ramp sweep tibia");
+        if (!plotter) Serial.println("ramp sweep tibia");
         use_ramp = 1;
         for (int i = 0; i < TOTAL_SERVOS; i++) {
           if (is_tibia(i)) {
@@ -5434,7 +5491,7 @@ void serial_check() {
         }
         break;
       case '7':
-        Serial.println("sweep femurs");
+        if (!plotter) Serial.println("sweep femurs");
         use_ramp = 0;
         for (int i = 0; i < TOTAL_SERVOS; i++) {
           if (is_femur(i)) {
@@ -5448,7 +5505,7 @@ void serial_check() {
         }
         break;
       case '8':
-        Serial.println("ramp sweep femur");
+        if (!plotter) Serial.println("ramp sweep femur");
         use_ramp = 1;
         for (int i = 0; i < TOTAL_SERVOS; i++) {
           if (is_femur(i)) {
@@ -5463,7 +5520,7 @@ void serial_check() {
         }
         break;
       case '9':
-        Serial.println("sweep coaxes");
+        if (!plotter) Serial.println("sweep coaxes");
         use_ramp = 0;
         for (int i = 0; i < TOTAL_SERVOS; i++) {
           if (!is_femur(i) && !is_tibia(i)) {
@@ -5477,19 +5534,19 @@ void serial_check() {
         }
         break;
       case 'g':
-        Serial.print("debug servo ");Serial.println(debug_servo);
+        if (!plotter) { Serial.print("debug servo ");Serial.println(debug_servo); }
         debug_loops2 = debug_loops;
         move_servo = 1;
         break;
       case 'e':
-        Serial.print("debug leg ");Serial.println(debug_leg);
+        if (!plotter) { Serial.print("debug leg ");Serial.println(debug_leg); }
         debug_loops2 = debug_loops;
         move_leg = 1;
         break;
       case 'h':
         Serial.println();
         Serial.println("\t-----------------------------------------");
-        Serial.println("\t|\tCODE\tCOMMAND\t\t\t|");
+        Serial.println("\t|\KEY\tCOMMAND\t\t\t|");
         Serial.println("\t-----------------------------------------");
         Serial.println("\t|\t0\tstop!\t\t\t|");
         Serial.println("\t|\t1\tset speed 1\t\t|");
@@ -5518,14 +5575,16 @@ void serial_check() {
         Serial.println("\t|\tp\tpitch\t\t\t|");
         Serial.println("\t|\tq\troll_body\t\t|");
         Serial.println("\t|\tn\tpitch_body\t\t|");
+        Serial.println();
         Serial.println("\t|\ty\ty_axis\t\t\t|");
         Serial.println("\t|\tx\tx_axis\t\t\t|");
+        Serial.println("\t|\ta\twake\t\t\t|");
+        Serial.println("\t|\tv\t[empty]\t\t\t|");
         Serial.println();
         Serial.println("\t|\tw\twman\t\t\t|");
         Serial.println("\t|\tu\tlook_left\t\t|");
         Serial.println("\t|\tj\tlook_right\t\t|");
         Serial.println("\t|\td\tdemo\t\t\t|");
-        Serial.println("\t|\ta\tfunplay\t\t\t|");
         Serial.println();
         Serial.println("\t|\t[\tmove_steps -2\t\t|");
         Serial.println("\t|\t]\tmove_steps +2\t\t|");
