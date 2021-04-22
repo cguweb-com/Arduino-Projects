@@ -1,6 +1,6 @@
 
 # Nova SM3 - a Spot-Mini Micro clone
-![Nova-SM3](https://raw.githubusercontent.com/cguweb-com/Arduino-Projects/main/Nova-SM2/Nova-SM2.jpg)  
+![Nova-SM3](https://raw.githubusercontent.com/cguweb-com/Arduino-Projects/main/Nova-SM3/novasm3.png)  
 This github project contains the 3D STL files, parts list, electrical diagrams, and the software for my spot-mini clone project, Nova Spot Micro  
 
 These files were not created with public consumption in mind, and are constantly under development, so use at your own risk!  
