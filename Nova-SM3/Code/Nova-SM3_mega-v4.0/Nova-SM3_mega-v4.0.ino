@@ -37,7 +37,7 @@
 #define VERSION 4.0
 
 //debug vars for displaying operation runtime data for debugging
-const byte debug = 1;             //general messages
+const byte debug = 0;             //general messages
 const byte debug1 = 0;            //ps2 commands
 const byte debug2 = 0;            //debug servo steps
 const byte debug3 = 0;            //ramping and sequencing
@@ -55,8 +55,8 @@ int debug_spd = 10;               //default speed for debug movements
 //activate/deactivate devices
 byte slave_active = 1;            //activate slave arduino nano
 byte pwm_active = 1;              //activate pwm controller / servos
-byte ps2_active = 0;              //activate PS2 remote control 
-byte serial_active = 1;           //activate serial monitor command input
+byte ps2_active = 1;              //activate PS2 remote control 
+byte serial_active = 0;           //activate serial monitor command input
 byte mpu_active = 0;              //activate MPU6050 
 byte rgb_active = 1;              //activate RGB modules
 byte oled_active = 1;             //activate OLED display
@@ -65,7 +65,7 @@ byte uss_active = 0;              //activate Ultra-Sonic sensors
 byte amp_active = 0;              //activate amperate monitoring
 byte batt_active = 1;             //activate battery level monitoring
 byte buzz_active = 1;             //activate simple tone sounds
-byte melody_active = 0;           //activate melodic tone sounds
+byte melody_active = 1;           //activate melodic tone sounds
 
 //include supporting libraries
 #include <SPI.h>
@@ -433,7 +433,6 @@ void setup() {
 }
 
 void loop() {
-
 /*
    -------------------------------------------------------
    Update Servos
@@ -1864,37 +1863,37 @@ void init_home() {
     activeSweep[i] = 0;
   }
 
-  //set crouched femurs
-  servoPos[RFF] = servoLimit[RFF][0] + 30;
+  //set crouched positions
+  for (int i = 0; i < TOTAL_SERVOS; i++) {
+    if (is_tibia(i)) {
+      servoPos[i] = servoLimit[i][1];
+    } else if (is_femur(i)) {
+      servoPos[i] = servoLimit[i][0];
+    } else {
+      servoPos[i] = servoHome[i];
+    }
+  }
+
+  //intitate servos in groups
+  //coaxes
+  pwm1.setPWM(servoSetup[RFC][1], 0, servoPos[RFC]);
+  pwm1.setPWM(servoSetup[LRC][1], 0, servoPos[LRC]);
+  pwm1.setPWM(servoSetup[RRC][1], 0, servoPos[RRC]);
+  pwm1.setPWM(servoSetup[LFC][1], 0, servoPos[LFC]);
+  delay(1000);
+
+  //femurs
   pwm1.setPWM(servoSetup[RFF][1], 0, servoPos[RFF]);
-  servoPos[LRF] = servoLimit[LRF][0] - 30;
   pwm1.setPWM(servoSetup[LRF][1], 0, servoPos[LRF]);
-  servoPos[RRF] = servoLimit[RRF][0] + 30;
   pwm1.setPWM(servoSetup[RRF][1], 0, servoPos[RRF]);
-  servoPos[LFF] = servoLimit[LFF][0] - 30;
   pwm1.setPWM(servoSetup[LFF][1], 0, servoPos[LFF]);
   delay(1000);
 
-  //set crouched coaxes
-  servoPos[RFC] = servoHome[RFC];
-  pwm1.setPWM(servoSetup[RFC][1], 0, servoHome[RFC]);
-  servoPos[LRC] = servoHome[LRC];
-  pwm1.setPWM(servoSetup[LRC][1], 0, servoHome[LRC]);
-  servoPos[RRC] = servoHome[RRC];
-  pwm1.setPWM(servoSetup[RRC][1], 0, servoHome[RRC]);
-  servoPos[LFC] = servoHome[LFC];
-  pwm1.setPWM(servoSetup[LFC][1], 0, servoHome[LFC]);
-  delay(1000);
-
-  //set crouched tibias
-  servoPos[RFT] = servoLimit[RFT][1];
-  pwm1.setPWM(servoSetup[RFT][1], 0, servoLimit[RFT][1]);
-  servoPos[LRT] = servoLimit[LRT][1];
-  pwm1.setPWM(servoSetup[LRT][1], 0, servoLimit[LRT][1]);
-  servoPos[RRT] = servoLimit[RRT][1];
-  pwm1.setPWM(servoSetup[RRT][1], 0, servoLimit[RRT][1]);
-  servoPos[LFT] = servoLimit[LFT][1];
-  pwm1.setPWM(servoSetup[LFT][1], 0, servoLimit[LFT][1]);
+  //tibias
+  pwm1.setPWM(servoSetup[RFT][1], 0, servoPos[RFT]);
+  pwm1.setPWM(servoSetup[LRT][1], 0, servoPos[LRT]);
+  pwm1.setPWM(servoSetup[RRT][1], 0, servoPos[RRT]);
+  pwm1.setPWM(servoSetup[LFT][1], 0, servoPos[LFT]);
   delay(1000);
 
   set_stay();

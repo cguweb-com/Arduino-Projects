@@ -3,65 +3,60 @@
 #include <Adafruit_PWMServoDriver.h>
 Adafruit_PWMServoDriver pwm1 = Adafruit_PWMServoDriver();
 
-int spd = 10;
+int spd = 7;
 int cal_coax = 1; //1 = home  2 = run 
-int cal_femur = 2; //1 = home  2 = run 
+int cal_femur = 1; //1 = home  2 = run 
 int cal_tibia = 1; //1 = home  2 = run 
 
 //RF
 uint8_t servonum1 = 0; //coax
-#define SERVOMIN1  330
-#define SERVOMAX1  450
-#define SERVOHOME1  368
+#define SERVOMIN1  320
+#define SERVOMAX1  440
+#define SERVOHOME1  358
 
 uint8_t servonum2 = 1; //femur
-#define SERVOMIN2  226
-#define SERVOMAX2  466
-#define SERVOHOME2  301
+#define SERVOMIN2  185
+#define SERVOMAX2  515
+#define SERVOHOME2  280
 
 uint8_t servonum3 = 2; //tibia
-#define SERVOMIN3  322
-#define SERVOMAX3  548
-#define SERVOHOME3  435
+#define SERVOMIN3  360
+#define SERVOMAX3  612
+#define SERVOHOME3  505
 
 /*
 //LF
 uint8_t servonum1 = 4; //coax
-#define SERVOMIN1  393
-#define SERVOMAX1  273
-#define SERVOHOME1  355
+#define SERVOMIN1  402
+#define SERVOMAX1  282
+#define SERVOHOME1  364
 
 uint8_t servonum2 = 5; //femur
-#define SERVOMIN2  497
-#define SERVOMAX2  257
-#define SERVOHOME2  422
+#define SERVOMIN2  537
+#define SERVOMAX2  207
+#define SERVOHOME2  442
 
 uint8_t servonum3 = 6; //tibia
-#define SERVOMIN3  468
-#define SERVOMAX3  242
-#define SERVOHOME3  355
-*/
+#define SERVOMIN3  360
+#define SERVOMAX3  108
+#define SERVOHOME3  215
 
-
-/*
 //RR
 uint8_t servonum1 = 8; //coax
-#define SERVOMIN1  310
-#define SERVOMAX1  430
-#define SERVOHOME1  348
+#define SERVOMIN1  326
+#define SERVOMAX1  446
+#define SERVOHOME1  364
 
 uint8_t servonum2 = 9; //femur
-#define SERVOMIN2  269
-#define SERVOMAX2  509
-#define SERVOHOME2  344
+#define SERVOMIN2  246
+#define SERVOMAX2  576
+#define SERVOHOME2  341
 
 uint8_t servonum3 = 10; //tibia
-#define SERVOMIN3  283
-#define SERVOMAX3  509
-#define SERVOHOME3  396
-*/
+#define SERVOMIN3  285
+#define SERVOMAX3  537
+#define SERVOHOME3  430
 
-/*
 //LR
 uint8_t servonum1 = 12; //coax
 #define SERVOMIN1  402
@@ -69,14 +64,14 @@ uint8_t servonum1 = 12; //coax
 #define SERVOHOME1  364
 
 uint8_t servonum2 = 13; //femur
-#define SERVOMIN2  416
-#define SERVOMAX2  176
+#define SERVOMIN2  436
+#define SERVOMAX2  106
 #define SERVOHOME2  341
 
 uint8_t servonum3 = 14; //tibia
-#define SERVOMIN3  419
-#define SERVOMAX3  193
-#define SERVOHOME3  306
+#define SERVOMIN3  420
+#define SERVOMAX3  168
+#define SERVOHOME3  275
 */
 
 
@@ -116,12 +111,14 @@ void loop() {
         pwm1.setPWM(servonum1, 0, i);
         delay(spd);
       }
+      delay(500);
       Serial.print("coax max "); Serial.print(SERVOMAX1);
       Serial.print(" to min "); Serial.println(SERVOMIN1);
       for (int i=SERVOMAX1;i>SERVOMIN1-1; i--) {
         pwm1.setPWM(servonum1, 0, i);
         delay(spd);
       }
+      delay(500);
     } else {
       Serial.print("coax min "); Serial.print(SERVOMIN1);
       Serial.print(" to max "); Serial.println(SERVOMAX1);
@@ -129,12 +126,14 @@ void loop() {
         pwm1.setPWM(servonum1, 0, i);
         delay(spd);
       }
+      delay(500);
       Serial.print("coax max "); Serial.print(SERVOMAX1);
       Serial.print(" to min "); Serial.println(SERVOMIN1);
       for (int i=SERVOMAX1;i<=SERVOMIN1; i++) {
         pwm1.setPWM(servonum1, 0, i);
         delay(spd);
       }
+      delay(500);
     }
   }
 
@@ -146,12 +145,14 @@ void loop() {
         pwm1.setPWM(servonum2, 0, i);
         delay(spd);
       }
+      delay(500);
       Serial.print("femur max "); Serial.print(SERVOMAX2);
       Serial.print(" to min "); Serial.println(SERVOMIN2);
       for (int i=SERVOMAX2;i>=SERVOMIN2; i--) {
         pwm1.setPWM(servonum2, 0, i);
         delay(spd);
       }
+      delay(500);
     } else {
       Serial.print("femur min "); Serial.print(SERVOMIN2);
       Serial.print(" to max "); Serial.println(SERVOMAX2);
@@ -159,12 +160,14 @@ void loop() {
         pwm1.setPWM(servonum2, 0, i);
         delay(spd);
       }
+      delay(500);
       Serial.print("femur max "); Serial.print(SERVOMAX2);
       Serial.print(" to min "); Serial.println(SERVOMIN2);
       for (int i=SERVOMAX2;i<=SERVOMIN2; i++) {
         pwm1.setPWM(servonum2, 0, i);
         delay(spd);
       }      
+      delay(500);
     }
   }
 
@@ -176,12 +179,14 @@ void loop() {
         pwm1.setPWM(servonum3, 0, i);
         delay(spd);
       }
+      delay(500);
       Serial.print("tibia max "); Serial.print(SERVOMAX3);
       Serial.print(" to min "); Serial.println(SERVOMIN3);
       for (int i=SERVOMAX3;i>=SERVOMIN3; i--) {
         pwm1.setPWM(servonum3, 0, i);
         delay(spd);
       }
+      delay(500);
     } else {
       Serial.print("tibia min "); Serial.print(SERVOMIN3);
       Serial.print(" to max "); Serial.println(SERVOMAX3);
@@ -189,12 +194,14 @@ void loop() {
         pwm1.setPWM(servonum3, 0, i);
         delay(spd);
       }
+      delay(500);
       Serial.print("tibia max "); Serial.print(SERVOMAX3);
       Serial.print(" to min "); Serial.println(SERVOMIN3);
       for (int i=SERVOMAX3;i<=SERVOMIN3; i++) {
         pwm1.setPWM(servonum3, 0, i);
         delay(spd);
       }      
+      delay(500);
     }
   }
 
