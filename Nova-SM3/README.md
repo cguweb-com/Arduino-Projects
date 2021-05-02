@@ -74,24 +74,22 @@ I'd be happy to answer any questions, and/or receive any type of feedback... hap
 ##    
 ### RELEASE NOTES  
 
-      - Arduino mega performance: 36% storage / 31% memory
-      - splt AsyncServo class into an include file
-      - created serial connection to arduino nano / slave
-      - created functions for serial communication to nano / slave
-      - moved uss, rgb, and oled functions to nano / slave companion file: Nova-SM3_nano-vX.x
-      - Bug Fix: state machine intervals were not being set / reset for USS and MPU sensors
-      - added stop on uss alarm and halt on pir alarm
+      - Arduino mega performance: 36% storage / 33% memory
+      - re-calibrated servo home positions to balance Nova's COG!!
+      - added setup() delay to prevent hardware reset execution 
+      - added skip_splash variable to disable boot graphics 
+      - step_march: new gait using joysticks to control "fake" kinematics :)
 
 ##    
 ### DEV NOTES  
 
       - [ ] BUG: ramping: on interruption of ramp, servo speed is set to the speed of the point of interrupt
-      - [ ] re-calibrate servo home positions to balance Nova's COG!! seems to be back-heavy
+      - [x] re-calibrate servo home positions to balance Nova's COG!! seems to be back-heavy
       - [ ] x_axis: tweak pattern, adjusting use of move_steps to not near fall over backwards on startup
-      - [ ] finish tweaking left and right stepping
-      - [ ] finish forward step (w/ left, right, backwards!)
-      - [ ] write a z-axis control that is sticky, so it maintains the set height on subsequent moves
-      - [ ] write a stable fixed speed / step walking routine
+      - [x] finish tweaking left and right stepping
+      - [x] finish forward step (w/ left, right, backwards!)
+      - [x] write a z-axis control that is sticky, so it maintains the set height on subsequent moves
+      - [x] write a stable fixed speed / step walking routine
       - [ ] fix 'stay' routine (ie: tends to fall backward when coming off of kneel or sit positions into stay)
       - [ ] work on integrating MPU data into movements
 
