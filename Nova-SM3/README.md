@@ -67,8 +67,8 @@ I'd be happy to answer any questions, and/or receive any type of feedback... hap
 [18AWG Silicone Wire](https://amzn.to/3aVjuRR)  
 [22AWG Hookup Wire](https://amzn.to/3aWSpxw)  
 [Dupont Jumper Wires](https://amzn.to/3eMeoZg)  
-[M2 M3 M4 Alloy](https://amzn.to/337GfgT)  
-[M3 M4 M5 M6 304 Stainless Steel Hex Cap](https://amzn.to/335KvNR)
+[M2 M3 M4 Alloy Hex Cap Screws](https://amzn.to/337GfgT)  
+[M3 M4 M5 M6 304 Stainless Steel Hex Cap Screws](https://amzn.to/335KvNR)
 
 
 ##    
