@@ -12,16 +12,15 @@
  *   RELEASE NOTES:
  *      Arduino mega performance: 36% storage / 33% memory
  *      re-calibrated servo home positions to balance Nova's COG!!
+ *      added setup() delay to prevent hardware reset execution 
+ *      added skip_splash variable to disable boot graphics 
+ *      step_march: new gait using joysticks to control "fake" kinematics :)
  *
  *   DEV NOTES:
  *      BUG: ramping: on interruption of ramp, servo speed is set to the speed of the point of interrupt
- *      write a z-axis control that is sticky, so it maintains the set height on subsequent moves
- *      write a stable fixed speed / step walking routine
  *      fix 'stay' routine (ie: tends to fall backward when coming off of kneel or sit positions into stay)
  *      work on integrating MPU data into movements
  *      x_axis: tweak pattern, adjusting use of move_steps to not near fall over backwards on startup
- *      finish tweaking left and right stepping
- *      finish forward step (w/ left, right, backwards!)
  *      
  *      see more 'DEV NOTE' comments in code for more bugs/tasks
  *      
