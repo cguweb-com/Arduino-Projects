@@ -15,5 +15,5 @@ So they are wired using one set of pins per pot:
    2. Each VIN pin from the 5 pots are wired together and then wired to the input connector
    3. Each Data pin from the 5 pots is wired to the input connector
 
-YouTube Video:  https://www.youtube.com/watch?v=00PkTcGWPvo&list=PLcOZNHwM_I2a3YZKf8FtUjJneKGXCfduk
+YouTube Video:  https://youtu.be/z_uGfEJWT04
 
