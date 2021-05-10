@@ -1,5 +1,6 @@
 
 # Potentiometer Protyping Box
+![Pot-Box](https://raw.githubusercontent.com/cguweb-com/Arduino-Projects/main/Pot_ProtoBox/20210510_193518.jpg)  
 
 This github project contains the 3D STL files and parts list for my Potentiometer Prototying Box project  
 
