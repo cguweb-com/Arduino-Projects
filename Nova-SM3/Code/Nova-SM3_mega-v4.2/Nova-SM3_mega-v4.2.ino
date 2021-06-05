@@ -1,7 +1,7 @@
 /*
  *   NovaSM3 - a Spot-Mini Micro clone
- *   Version: 4.1
- *   Version Date: 2021-04-30
+ *   Version: 4.2
+ *   Version Date: 2021-05-31
  *   
  *   Author:  Chris Locke - cguweb@gmail.com
  *   GitHub Project:  https://github.com/cguweb-com/Arduino-Projects/tree/main/Nova-SM3
@@ -11,11 +11,7 @@
  *   
  *   RELEASE NOTES:
  *      Arduino mega performance: 36% storage / 33% memory
- *      added setup() delay to prevent hardware reset execution 
- *      added skip_splash variable to disable boot graphics 
- *      step_march: new gait using joysticks to control "fake" kinematics :)
- *      step_trot: tweaked gait using joysticks 
- *      added 3 PIR sensors and new follow() function
+ *      Added TCA9548 i2c multiplexer and code
  *
  *   DEV NOTES:
  *      BUG:  hangs / crashes randomly still:
@@ -35,7 +31,7 @@ int  test_loops = 0;
 int  test_steps = 0;  
 
 //set Nova SM3 version
-#define VERSION 4.1
+#define VERSION 4.2
 
 //debug vars for displaying operation runtime data for debugging
 const byte debug = 1;             //general messages
@@ -46,7 +42,6 @@ const byte debug4 = 0;            //amperage and battery
 const byte debug5 = 1;            //mpu and uss sensors
 const byte debug6 = 0;            //serial communication output/response and serial terminal commands
 const byte plotter = 0;           //plot servo steps, turn off debug1
-const byte skip_splash = 0;       //skip 15s of loading graphics
 
 byte debug_leg = 0;               //default debug leg (3 servos) (changed by serial command input)
 int debug_servo = 2;              //default debug servo (changed by serial command input)
@@ -62,18 +57,27 @@ byte serial_active = 1;           //activate serial monitor command input
 byte mpu_active = 0;              //activate MPU6050 
 byte rgb_active = 1;              //activate RGB modules
 byte oled_active = 1;             //activate OLED display
-byte pir_active = 1;              //activate PIR motion sensor
-byte uss_active = 1;              //activate Ultra-Sonic sensors
+byte pir_active = 0;              //activate PIR motion sensor
+byte uss_active = 0;              //activate Ultra-Sonic sensors
 byte amp_active = 0;              //activate amperate monitoring
 byte batt_active = 0;             //activate battery level monitoring
 byte buzz_active = 1;             //activate simple tone sounds
 byte melody_active = 0;           //activate melodic tone sounds
+byte skip_splash = 1;             //skip 15s of loading graphics
 
 //include supporting libraries
 #include <SPI.h>
 #include <Wire.h>
 #include <PS2X_lib.h>
 #include <Adafruit_PWMServoDriver.h>
+
+//tca i2c multiplexer
+#define TCAADDR 0x70
+int tca_cur = 0;
+int tca_nul = 0;
+int tca_pwm = 1;
+int tca_slv = 2;
+int tca_mpu = 3;
 
 //pwm controller
 Adafruit_PWMServoDriver pwm1 = Adafruit_PWMServoDriver(0x40);
@@ -123,7 +127,7 @@ byte pir_state = LOW;
 byte pir_val = 0;
 
 //ultrasonic sensors (2 - left & right)
-unsigned int ussInterval = 1000;
+unsigned int ussInterval = 999;
 unsigned long lastUSSUpdate = 0;
 int distance_alarm = 40;              //distance to set triggers
 int distance_alarm_set = 0;           //count consecutive set triggers
@@ -136,19 +140,24 @@ int prev_distance_r;                  //previous distance of right sensor to pre
 //mpu6050 sensor
 const int MPU = 0x68;
 unsigned int mpuInterval = 40;
+unsigned int mpuInterval_prev = mpuInterval;
 unsigned long lastMPUUpdate = 0;
 float AccX, AccY, AccZ;
 float GyroX, GyroY, GyroZ;
 float accAngleX, accAngleY, gyroAngleX, gyroAngleY, gyroAngleZ;
 float mroll, mpitch, myaw;
 float mroll_prev, mpitch_prev, myaw_prev;
+float mpu_mroll = 0.00;
+float mpu_mpitch = 0.00;
+float mpu_myaw = 0.00;
 float mpu_trigger_thresh = 0.1;
 float AccErrorX, AccErrorY, GyroErrorX, GyroErrorY, GyroErrorZ;
 float elapsedTime, currentTime, previousTime;
+int mpu_is_active = mpu_active;
 int mpu_c = 0;
 
 //DEV NOTE: these are used for an experimental oscillation prevention check, but really, a PID controller
-//          should researched and coded to replace this messy, unreliable solution
+//          should be researched and coded to replace this messy, unreliable solution
 //
 float mpu_oscill_thresh = 33.0;
 int mpu_oscill_grace = 3;
@@ -173,6 +182,7 @@ int serial_resp;
 int ByteReceived;
 unsigned int serialInterval = 60;
 unsigned long lastSerialUpdate = 0;
+String serial_input;
 
 
 //amperage monitor
@@ -275,6 +285,8 @@ float step_height_factor = 1.25;
 */
 void set_ramp(int servo, float sp, float r1_spd, float r1_dist, float r2_spd, float r2_dist);
 void amperage_check(int aloop);
+void tca_select(uint8_t i);
+bool tca_current(uint8_t i);
 
 #include "NovaServos.h"           //include motor setup vars and data arrays
 #include "AsyncServo.h"           //include motor class
@@ -342,11 +354,14 @@ void setup() {
 
   //init mpu6050
   if (mpu_active) {
+    tca_select(tca_mpu);
     Wire.begin();
     Wire.beginTransmission(MPU);
     Wire.write(0x6B);
     Wire.write(0x00);
     Wire.endTransmission(true);
+    delay(200);
+    tca_select(tca_nul);
   }
 
   //init pir sensors
@@ -394,9 +409,12 @@ void setup() {
       delay(1000);
     }
 
+    tca_select(tca_pwm);
     pwm1.begin();
     pwm1.setOscillatorFrequency(OSCIL_FREQ);
     pwm1.setPWMFreq(SERVO_FREQ);
+    delay(200);
+    tca_select(tca_nul);
     if (debug) Serial.println(F("pwm1 Passed Setup"));
 
     //set default speed factor
@@ -423,17 +441,7 @@ void setup() {
       digitalWrite(OE_PIN, HIGH);
       delay(500);
     }
-  }
-
-  //calc mpu6050 error margins
-  if (mpu_active) {
-    if (debug) Serial.println(F("Calculating IMU Errors..."));
-    calculate_IMU_error();
-    delay(200);
-  }
-
-
-  if (!pwm_active) {
+  } else {
     if (debug) Serial.print(F("PWM is disabled!"));
     delay(1000);
     if (debug) Serial.println(F("Ready!"));
@@ -448,7 +456,17 @@ void setup() {
     }
   }
 
-  if (debug) Serial.println(F("Ready!"));
+  //calc mpu6050 error margins
+  if (mpu_active) {
+    if (debug) Serial.println(F("Calculating IMU Errors..."));
+    calculate_IMU_error();
+    delay(200);
+
+    //delay mpu until init_home is complete
+    Serial.println("...Success! IMU will initialize in 3 seconds.");
+    mpuInterval = 3000;
+    lastMPUUpdate = millis();
+  }
 
   if (buzz_active) {
     for (int b = 0; b < 12; b++) {
@@ -460,40 +478,19 @@ void setup() {
     noTone(BUZZ);
   }
 
-  if (!plotter && serial_active) {
-    delay(1000);
-    Serial.println();
-    Serial.println(F("Type a command key or 'h' for help:"));
+  if (!mpu_active) {
+    if (debug) Serial.println(F("Ready!"));
+
+    if (!plotter && serial_active) {
+      delay(1000);
+      Serial.println();
+      Serial.println(F("Type a command key or 'h' for help:"));
+    }
   }
 }
 
 void loop() {
-/*
-   -------------------------------------------------------
-   Update Servos
-    :check if servo(s) need updating
-    :this is the core functionality of Nova
-   -------------------------------------------------------
-*/
-  //update coxas
-  s_RFC.Update();
-  s_LFC.Update();
-  s_RRC.Update();
-  s_LRC.Update();
-
-  //update femurs
-  s_RFF.Update();
-  s_LFF.Update();
-  s_RRF.Update();
-  s_LRF.Update();
-
-  //update tibias
-  s_RFT.Update();
-  s_LFT.Update();
-  s_RRT.Update();
-  s_LRT.Update();
-
-
+  update_servos();
 /*
    -------------------------------------------------------
    Check for Moves
@@ -615,6 +612,33 @@ void loop() {
 */
 /*
    -------------------------------------------------------
+   Update Servos
+    :check if servo(s) need updating
+    :this is the core functionality of Nova
+   -------------------------------------------------------
+*/
+void update_servos() {
+  //update coxas
+  s_RFC.Update();
+  s_LFC.Update();
+  s_RRC.Update();
+  s_LRC.Update();
+
+  //update femurs
+  s_RFF.Update();
+  s_LFF.Update();
+  s_RRF.Update();
+  s_LRF.Update();
+
+  //update tibias
+  s_RFT.Update();
+  s_LFT.Update();
+  s_RRT.Update();
+  s_LRT.Update();
+}
+
+/*
+   -------------------------------------------------------
    PS2 Check
     :provide general description and explanation here - too much to comment by line
    -------------------------------------------------------
@@ -649,12 +673,14 @@ void ps2_check() {
             x_dir = 0;
             z_dir = 0;
             move_steps = 50;
+            if (mpu_is_active) mpu_active = 0;
             move_march = 1;
             if (oled_active) {
               oled_request((char*)"d");
             }
           } else {
             move_march = 0;
+            if (mpu_is_active) mpu_active = 1;
             set_stop();
             y_dir = 0;
             x_dir = 0;
@@ -836,6 +862,7 @@ void ps2_check() {
               rgb_request((char*)"Ff");
             }
             
+            if (mpu_is_active) mpu_active = 0;
             move_march = 1;
             spd = 12;
             set_speed();
@@ -864,6 +891,7 @@ void ps2_check() {
               Serial.println(F("stop forward"));
           }
           if (move_march) {
+            if (mpu_is_active) mpu_active = 1;
             move_march = 0;
           }
           if (move_trot) {
@@ -1616,6 +1644,7 @@ void follow() {
         set_speed();
         step_weight_factor = 1.20;
         move_steps = 25;
+        if (mpu_is_active) mpu_active = 0;
         move_march = 1;
 
         pir_frontState = LOW;
@@ -1753,6 +1782,8 @@ int uss_check() {
    -------------------------------------------------------
 */
 void get_mpu() {
+  tca_select(tca_mpu);
+
   // === Read acceleromter data === //
   Wire.beginTransmission(MPU);
   Wire.write(0x3B); // Start with register 0x3B (ACCEL_XOUT_H)
@@ -1778,6 +1809,8 @@ void get_mpu() {
   GyroY = (Wire.read() << 8 | Wire.read()) / 131.0;
   GyroZ = (Wire.read() << 8 | Wire.read()) / 131.0;
 
+  tca_select(tca_nul);
+
   // Correct the outputs with the calculated error values
   GyroX = GyroX + abs(GyroErrorX); // GyroErrorX ~(-0.56)
   GyroY = GyroY + abs(GyroErrorY); // GyroErrorY ~(2)
@@ -1792,10 +1825,24 @@ void get_mpu() {
   mroll = (0.96 * gyroAngleX + 0.04 * accAngleX);
   mpitch = (0.96 * gyroAngleY + 0.04 * accAngleY);
 
-//DEVNOTE: miserable serial communication... 
-//this is not working so well alongside PWM controller and Nano connections
-  //Serial.print("mroll: ");Serial.print(mroll);
-  //Serial.print("\tmpitch: ");Serial.println(mpitch);
+  //on init mpu, save offsets as defaults for resetting MPU position
+  if (mpuInterval != mpuInterval_prev){
+    mpuInterval = mpuInterval_prev;
+    mpu_mroll = mroll;
+    mpu_mpitch = mpitch;
+    mpu_myaw = myaw;
+    if (!plotter) Serial.print(F("mpu roll/pitch: "));Serial.print(mpu_mroll);Serial.print(F(" / "));Serial.println(mpu_mpitch);
+
+    //delay before starting set_axis first time
+    delay(1000);
+    if (debug) Serial.println(F("Ready!"));
+    
+    delay(500);
+    if (!plotter && serial_active) {
+      Serial.println();
+      Serial.println(F("Type a command key or 'h' for help:"));
+    }
+  }
 
   set_axis(mroll, mpitch);
 
@@ -1809,6 +1856,8 @@ void get_mpu() {
    -------------------------------------------------------
 */
 void calculate_IMU_error() {
+  tca_select(tca_mpu);
+
   // Read accelerometer values 200 times
   while (mpu_c < 200) {
     Wire.beginTransmission(MPU);
@@ -1842,6 +1891,8 @@ void calculate_IMU_error() {
     GyroErrorZ = GyroErrorZ + (GyroZ / 131.0);
     mpu_c++;
   }
+  tca_select(tca_nul);
+
   //Divide the sum by 200 to get the error value
   GyroErrorX = GyroErrorX / 200;
   GyroErrorY = GyroErrorY / 200;
@@ -2031,6 +2082,30 @@ void battery_check() {
 
 /*
    -------------------------------------------------------
+   Select TCA i2c channel
+    :provide general description and explanation here
+   -------------------------------------------------------
+*/
+void tca_select(uint8_t i) {
+  tca_cur = i;
+  if (i == 0 || i > 7) return;
+
+  Wire.beginTransmission(TCAADDR);
+  Wire.write(1 << i);
+  Wire.endTransmission();  
+}
+
+bool tca_current(uint8_t i) {
+  bool c = false;
+  if (tca_cur == i) c = true;
+
+  return c;
+}
+
+
+
+/*
+   -------------------------------------------------------
    Operational Functions
    -------------------------------------------------------
 */
@@ -2075,6 +2150,8 @@ void init_home() {
   }
 
   //intitate servos in groups
+  tca_select(tca_pwm);
+
   //coaxes
   pwm1.setPWM(servoSetup[RFC][1], 0, servoPos[RFC]);
   pwm1.setPWM(servoSetup[LRC][1], 0, servoPos[LRC]);
@@ -2096,6 +2173,8 @@ void init_home() {
   pwm1.setPWM(servoSetup[LFF][1], 0, servoPos[LFF]);
   delay(1000);
 
+  tca_select(tca_nul);
+
   set_stay();
 }
 
@@ -2104,11 +2183,14 @@ void detach_all() {
   if (debug4) {
     Serial.println(F("detaching all servos!"));
   }
+
+  tca_select(tca_pwm);
   for (int i = 0; i < TOTAL_SERVOS; i++) {
     activeServo[i] = 0;
     activeSweep[i] = 0;
     pwm1.setPWM(i, 0, 0);
   }
+  tca_select(tca_nul);
   digitalWrite(OE_PIN, HIGH);
   digitalWrite(PWR_PIN, LOW);
   pwm_active = 0;
@@ -2160,6 +2242,7 @@ void set_ramp(int servo, float sp, float r1_spd, float r1_dist, float r2_spd, fl
 }
 
 void go_home() {
+  tca_select(tca_pwm);
   for (int i = 0; i < TOTAL_SERVOS; i++) {
     activeServo[i] = 0;
     activeSweep[i] = 0;
@@ -2171,6 +2254,7 @@ void go_home() {
     }
     delay(20);
   }
+  tca_select(tca_nul);
 
   for (int i = 0; i < TOTAL_LEGS; i++) {
     servoSequence[i] = 0;
@@ -2229,6 +2313,8 @@ void set_stop_active() {
   move_servo = 0;
   move_leg = 0;
   move_follow = 0;
+
+  if (mpu_is_active) mpu_active = 1;
 }
 
 void set_speed() {
@@ -3956,7 +4042,6 @@ void step_left_right(int lorr, int xdir, int ydir) {   //where x is +right/-left
 void step_march(float xdir, float ydir, float zdir) {
 
 //DEVWORK
-
 //  ramp_dist = 0.2;
 //  ramp_spd = 0.3;
 //  use_ramp = 1;  
@@ -4898,20 +4983,35 @@ int pwm_to_degrees(int pulse_wide, int mxw, int mnw, int rng) {
    -------------------------------------------------------
 */
 void serial_check() {
-  if (serial_active && Serial.available() > 0) {
-    ByteReceived = Serial.read();
-    if (debug6) {
-      Serial.print(ByteReceived);Serial.print("\t");
-      Serial.print(ByteReceived, HEX);Serial.print("\t");
-      Serial.println(char(ByteReceived));
+  if (serial_active) {
+    while (Serial.available()) {
+      delay(2);  //delay to allow byte to arrive in input buffer
+      char c = Serial.read();
+      if (c != ' ' && c != '\n') {  //strip spaces and newlines
+        if (c == ',') {  //end command
+          serial_command(serial_input);
+          serial_input="";
+        } else {  //build command
+          serial_input += c;
+        }
+      }
     }
+  
+    if (serial_input.length() > 0) {  //end read
+      serial_command(serial_input);
+      serial_input="";
+    } 
+  }
+}
 
-    switch (ByteReceived) {
-      case '0':
+
+void serial_command(String cmd) {
+  if (cmd) {
+    if (cmd == "stop") {
         if (!plotter) Serial.println(F("stop!"));
         set_stop_active();
         set_home();
-        break;    
+/*
       case 91:
         if (!plotter) Serial.print(F("move_steps -5: "));
         if (move_steps > move_steps_min) {
@@ -5008,7 +5108,8 @@ void serial_check() {
         spd = 30;
         set_speed();
         break;
-      case 'z':
+*/
+    } else if (cmd == "vars") {
         if (!plotter) {
           Serial.println();
           Serial.println(F("---------------------------------------"));
@@ -5043,7 +5144,11 @@ void serial_check() {
           Serial.println();
           Serial.println();
         }
-        break;
+      } else {
+        Serial.print(cmd);
+        Serial.println(F(" is not a valid command.\nTry again, else type 'h' for Help."));
+      }
+/*
       case 'o':
         if (oled_active) {
           if (!plotter) Serial.println(F("test OLED begin"));
@@ -5081,6 +5186,7 @@ void serial_check() {
         z_dir = 0;
         step_weight_factor = 1.20;
         move_steps = 25;
+        if (mpu_is_active) mpu_active = 0;
         move_march = 1;
         break;
       case 'f':
@@ -5175,7 +5281,22 @@ void serial_check() {
         move_forward = 1;
         break;
       case 'j':
-
+        if (mpu_is_active) {
+          if (mpu_active) {
+            if (!plotter) Serial.println(F("mpu off!"));
+            mpu_active = 0;
+            if (!plotter) Serial.println(F("set_home"));
+            set_home();
+          } else {
+            if (!plotter) Serial.println(F("mpu on!"));
+            mpu_active = 1;
+//            if (!plotter) Serial.print(F("mpu roll/pitch: "));Serial.print(mpu_mroll);Serial.print(F(" / "));Serial.println(mpu_mpitch);
+//            set_axis(mpu_mroll, mpu_mpitch);
+          }
+        } else {
+          if (!plotter) Serial.println(F("set_home"));
+          set_home();
+        }
         break;
       case 'a':
         if (!plotter) Serial.println(F("wake"));
@@ -5284,6 +5405,7 @@ void serial_check() {
           }
           noTone(BUZZ);         
         }
+        if (mpu_is_active) mpu_active = 1;
         break;
       case 125:
         if (!plotter) { Serial.println("debug pir follow on"); }
@@ -5297,7 +5419,9 @@ void serial_check() {
           }
           noTone(BUZZ);         
         }
+        if (mpu_is_active) mpu_active = 0;
         break;
+
       case 'h':
         Serial.println();
         Serial.println(F("\t-----------------------------------------"));
@@ -5363,6 +5487,7 @@ void serial_check() {
         Serial.println(F("Type a command code or 'h' for help:"));
         break;
     }
+*/
   }
 }
 
@@ -5473,26 +5598,31 @@ int command_slave(char* commands) {
         (serial_oled) ? Serial.print(F("OLED Command: ")) : Serial.print(F("System Command: "));
       }
 
-      Wire.beginTransmission((uint8_t)SLAVE_ID);
-      Wire.write(char(commands[i]));
-      Wire.endTransmission();
-      if (debug6 && (commands[i] != 'Z')) {
-        Serial.print(commands[i]);
-      }
-    
-      Wire.beginTransmission((uint8_t)SLAVE_ID);
-      int available = Wire.requestFrom((uint8_t)SLAVE_ID, (uint8_t)2);
-            
-      if (available == 2) {
-        command_response = Wire.read() << 8 | Wire.read(); 
+      if (tca_current(tca_nul)) {
+        tca_select(tca_slv);
+        Wire.beginTransmission((uint8_t)SLAVE_ID);
+        Wire.write(char(commands[i]));
+        Wire.endTransmission();
         if (debug6 && (commands[i] != 'Z')) {
-          Serial.print("\tresponse: ");
-          Serial.print(command_response);
+          Serial.print(commands[i]);
         }
-      }
-      Wire.endTransmission();
-      if (debug6 && (commands[i] != 'Z')) {
-        Serial.println();
+      
+        Wire.beginTransmission((uint8_t)SLAVE_ID);
+        int available = Wire.requestFrom((uint8_t)SLAVE_ID, (uint8_t)2);
+              
+        if (available == 2) {
+          command_response = Wire.read() << 8 | Wire.read(); 
+          if (debug6 && (commands[i] != 'Z')) {
+            Serial.print("\tresponse: ");
+            Serial.print(command_response);
+          }
+        }
+        Wire.endTransmission();
+        tca_select(tca_nul);
+
+        if (debug6 && (commands[i] != 'Z')) {
+          Serial.println();
+        }
       }
 
       //if resetting slave, pause 15secs for display graphics, unless skip_splash

@@ -129,6 +129,7 @@ class AsyncServo {
             }
 
             //move servo by increment in target direction from current position comparison
+            tca_select(tca_pwm);
             if (servoPos[servoID] < targetPos[servoID]) {
               servoPos[servoID] += incUnit;
               driver->setPWM(pwmBoard, 0, servoPos[servoID]);
@@ -136,6 +137,7 @@ class AsyncServo {
               servoPos[servoID] -= incUnit;
               driver->setPWM(pwmBoard, 0, servoPos[servoID]);
             }
+            tca_select(tca_nul);
 
             //count step
             servoStep[servoID]++;
@@ -239,6 +241,7 @@ class AsyncServo {
             }
 
             //sweep servo by increment in target direction from current position comparison
+            tca_select(tca_pwm);
             if (servoPos[servoID] < targetPos[servoID]) {
               servoPos[servoID] += incUnit;
               if (debug2 && servoID == debug_servo) {
@@ -252,6 +255,7 @@ class AsyncServo {
               }
               driver->setPWM(pwmBoard, 0, servoPos[servoID]);
             }
+            tca_select(tca_nul);
 
             //change direction of sweep type if target reached
             if (servoPos[servoID] == targetPos[servoID] && !servoSweep[servoID][2]) {

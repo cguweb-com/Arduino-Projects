@@ -68,18 +68,18 @@ int servoLeg[TOTAL_LEGS][3] = {       //coxa, femu, tibia
 
 //sets home position of servos
 float servoHome[TOTAL_SERVOS] = {         //home pos
-  352, 280, 505,                          //RFx
-  364, 442, 210,                          //LFx
+  352, 280, 510,                          //RFx
+  364, 442, 225,                          //LFx
   367, 331, 423,                          //RRx
-  364, 351, 285,                          //LRx
+  364, 351, 213,                          //LRx
 };
 
 //sets min and max positions of servos
 float servoLimit[TOTAL_SERVOS][2] = {     //min, max
-  {314, 434}, {185, 515}, {360, 602},     //RFx 
-  {402, 282}, {537, 207}, {355, 113},     //LFx
+  {314, 434}, {185, 515}, {365, 607},     //RFx 
+  {402, 282}, {537, 207}, {370, 128},     //LFx
   {329, 449}, {236, 566}, {278, 520},     //RRx
-  {402, 282}, {446, 116}, {430, 188},     //LRx
+  {402, 282}, {446, 116}, {358, 116},     //LRx
 };
 
 /*

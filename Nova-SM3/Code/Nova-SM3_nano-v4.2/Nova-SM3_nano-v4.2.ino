@@ -1,49 +1,71 @@
 /*
  *   NovaSM3 - a Spot-Mini Micro clone
- *   Version: 4.0
- *   Version Date: 2021-04-21
+ *   Version: 4.2
+ *   Version Date: 2021-05-31
  *   
  *   Author:  Chris Locke - cguweb@gmail.com
- *   GitHub Project:  https://github.com/cguweb-com/Arduino-Projects/tree/main/Nova-SM3
+ *   GitHub Project:  https://github.com/cguweb-com/Arduino-Projects/tree/main/Nova-SM2
  *   Thingiverse:  https://www.thingiverse.com/thing:4767006
  *   Instructables Project:  https://www.instructables.com/Nova-Spot-Micro-a-Spot-Mini-Clone/
  *   YouTube Playlist:  https://www.youtube.com/watch?v=00PkTcGWPvo&list=PLcOZNHwM_I2a3YZKf8FtUjJneKGXCfduk
  *   
  *   RELEASE NOTES:
  *      Arduino nano performance: 77% storage / 37% memory
+ *      Added saving / retreiving eeprom data to enable changing settings from Mega
+ *      Replaced i2c oled with SPI oled
+ *      Added NewPing for ultrasonic sensors
  *
  *   DEV NOTES:
- *      - add skip_splash code
+ *      add command switches for active settings
+ * 
  */
 
 //set Nova SM3 version
-#define VERSION 4.0
+#define VERSION 4.2
 
+//load default active values, to be refreshed from eprom on boot
 byte debug1 = 0;
-
 byte rgb_active = 1;              //activate RGB modules
 byte oled_active = 1;             //activate OLED display
 byte uss_active = 1;              //activate Ultra-Sonic sensors
-
+byte skip_splash = 0;             //skip intro graphics at startup
 
 #include <Wire.h>
 #include <Adafruit_NeoPixel.h>
 #include <Adafruit_GFX.h>
-#include <Adafruit_SSD1306.h>
-//#include <NewPing.h>
+#include <Adafruit_SSD1331.h>
+#include <SPI.h>
+#include <EEPROM.h>
+#include <NewPing.h>
 
 //serial connection
-#define RESET_PIN 4
+#define RESET_PIN 3
 #define SLAVE_ID 1
 byte serial_oled = 0;
 int resp;
 char req;
 
 //oled display
-#define SCREEN_WIDTH 128
+int sclk = 13;
+int mosi = 11;
+int rst = 9;
+int dc = 8;
+int cs = 10;
+#define SCREEN_WIDTH 96
 #define SCREEN_HEIGHT 64
 #define OLED_RESET -1
-Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
+Adafruit_SSD1331 display = Adafruit_SSD1331(cs, dc, rst);
+
+// Color definitions
+#define BLACK 0x0000
+#define BLUE 0x001F
+#define RED 0xF800
+#define GREEN 0x07E0
+#define CYAN 0x07FF
+#define MAGENTA 0xF81F
+#define YELLOW 0xFFE0
+#define WHITE 0xFFFF
+
 unsigned long lastOLEDUpdate = 0;
 unsigned int oledInterval = 250;
 unsigned long lastOLEDClear = 0;
@@ -51,7 +73,7 @@ unsigned long oledClearInterval = 5000;
 int oled_command = 0;
 
 //button & trim pot
-#define BTN_ACTIVE_PIN 3
+#define BTN_ACTIVE_PIN 12
 #define LED_BRIGHT_PIN A3
 int rgb_bright = 80;
 
@@ -75,16 +97,16 @@ int pattern_side = 0;             // set left or right lights
 
 
 //ultrasonic sensors
-#define L_TRIGPIN 9
-#define L_ECHOPIN 8
-#define R_TRIGPIN 7
-#define R_ECHOPIN 6
-#define MAX_DISTANCE 200
-//NewPing sonar_l(L_TRIGPIN, L_ECHOPIN, MAX_DISTANCE);
-//NewPing sonar_r(R_TRIGPIN, R_ECHOPIN, MAX_DISTANCE);
-
-float duration;
-float durationpulse;
+#define SONAR_NUM 2
+#define L_TRIGPIN 7
+#define L_ECHOPIN 6
+#define R_TRIGPIN 5
+#define R_ECHOPIN 4
+#define MAX_DISTANCE 300
+NewPing sonar[SONAR_NUM] = {
+  NewPing(L_TRIGPIN, L_ECHOPIN, MAX_DISTANCE),
+  NewPing(R_TRIGPIN, R_ECHOPIN, MAX_DISTANCE), 
+};
 int dist_l;
 int dist_r;
 
@@ -157,91 +179,121 @@ const unsigned char smbmp [] PROGMEM = {
   0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0xe0, 0x00, 0x0e, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 };
 
+void save_ep_data();
+void load_ep_data();
+void reset_slave();
 
 
 void setup() {
+  Serial.begin(19200);
+  delay(200);
+
+  load_ep_data();
+  delay(500);
+
+  if (debug1) {
+    Serial.println("eeprom loaded:");
+    Serial.print("debug1: ");Serial.println(debug1);
+    Serial.print("rgb_active: ");Serial.println(rgb_active);
+    Serial.print("oled_active: ");Serial.println(oled_active);
+    Serial.print("uss_active: ");Serial.println(uss_active);
+    Serial.print("skip_splash: ");Serial.println(skip_splash);
+    Serial.println();
+  }
+
   digitalWrite(RESET_PIN, HIGH);
   delay(200);
-  pinMode(RESET_PIN, OUTPUT);     
-
+  pinMode(RESET_PIN, OUTPUT);   
+  
   Wire.begin(SLAVE_ID); 
   Wire.onRequest(requestCallback);
   Wire.onReceive(receiveEvent);
-
   delay(200);
-  Serial.begin(19200);
 
   pinMode(LED_BRIGHT_PIN, INPUT);
-//  pinMode(BTN_ACTIVE_PIN, INPUT);
-  
-  led_eyes.begin();
-  led_eyes.setBrightness(rgb_bright);
-  wipe_eyes();
+  pinMode(BTN_ACTIVE_PIN, INPUT);
+  digitalWrite(BTN_ACTIVE_PIN, LOW);
 
-  if (uss_active) {
-    pinMode(L_TRIGPIN, OUTPUT);
-    pinMode(L_ECHOPIN, INPUT);
-    pinMode(R_TRIGPIN, OUTPUT);
-    pinMode(R_ECHOPIN, INPUT);
+  if (rgb_active) {
+    led_eyes.begin();
+    led_eyes.setBrightness(rgb_bright);
+    wipe_eyes();
   }
 
   if (oled_active) {
-    display.begin(SSD1306_SWITCHCAPVCC, 0x3C);
-    display.clearDisplay();
-  
+    display.begin();
+    display.setFont();
+    lcdTestPattern();
+    delay(500);
+    display.fillScreen(BLACK);
     display.setTextSize(1);
-    display.setTextColor(WHITE);
+    display.setTextColor(YELLOW);
     display.setCursor(0, 20);
     display.println("Initializing...");
-    display.display();
-    delay(1500);
-    pattern_cnt = 5;
-    pattern_int = 250;
-    pattern = 11;
-    display.clearDisplay();
-    display.display();
-  
-    //animate bitmap
-    display.clearDisplay();
-    delay(500);
-    display.drawBitmap(0, 0,  smbmp, 128, 64, WHITE);
-    display.display();
-    for (int i=0;i<4;i++) {
-      display.startscrollright(0x00, 0x07);
-      delay(500);
-      display.startscrollleft(0x00, 0x07);
-      delay(500);
-    }
-    display.stopscroll();
-    display.clearDisplay();
-    display.display();
-    delay(500);
+    delay(2000);
+    display.fillScreen(BLACK);
 
-    //Display banner
-    for (int i=25;i>0;i--) {
-      int d = (i*2);
-      if (i > 22) d = (i*10);
-      display.setCursor(20, 10);
-      display.setTextSize(2);
-      display.println("NOVA-SM3");
-      display.setCursor(50, 26);
-      display.setTextSize(1);
-      display.print("v");    
-      display.println(VERSION);
-      display.display();
-      delay(d);
-      display.clearDisplay();
-      display.display();
-      delay(d);
+    if (!skip_splash) {
+      //animate bitmap
+      display.drawBitmap(-20, 10,  smbmp, 128, 64, YELLOW);
+      delay(3000);
     }
-    display.clearDisplay();
-    display.display();  
+    display.fillScreen(BLACK);
+    display.setTextColor(WHITE);
+    display.setCursor(10, 10);
+    display.setTextSize(3);
+    display.println("NOVA");
+    display.setCursor(10, 35);
+    display.setTextSize(2);
+    display.print("SM3");
+    display.setCursor(50, 45);
+    display.setTextSize(1);
+    display.print("v");
+    display.println(VERSION);
+    delay(1500);
+
+    if (!skip_splash) {
+      //Display banner
+      int ac = 1;
+      for (int i=25;i>0;i--) {
+        int d = (i*2);
+        if (i > 22) d = (i*10);
+        if (ac) {
+          display.setTextColor(YELLOW);
+          ac = 0;
+        } else {
+          display.setTextColor(MAGENTA);
+          ac = 1;
+        }
+        display.setCursor(10, 10);
+        display.setTextSize(3);
+        display.println("NOVA");
+        display.setCursor(10, 35);
+        display.setTextSize(2);
+        display.print("SM3");
+        display.setCursor(50, 45);
+        display.setTextSize(1);
+        display.print("v");
+        display.println(VERSION);
+        delay(d);
+        display.fillScreen(BLACK);
+        delay(d);
+      }
+    }
+    display.fillScreen(BLACK);
+    display.setTextColor(YELLOW);
+    display.setCursor(5, 20);
+    display.setTextSize(2);
+    display.print("Ready!");    
+
     sleep_display(&display);
   }
 
   if (debug1) Serial.println(F("Ready!"));
+  pattern = 12;
+  pattern_cnt = 32; //4 per sequence for pattern 12
+  pattern_int = 50;
 }
-
 
 
 void loop() {
@@ -259,26 +311,51 @@ void loop() {
     if (millis() - lastOLEDClear > oledClearInterval) oled_clear();
   }
 
-/*
-  if (digitalRead(BTN_ACTIVE_PIN) == 0) {
+  if (digitalRead(BTN_ACTIVE_PIN) == 1) {
     if (debug1)
       Serial.println(F("btn active 1"));
     delay(1000);
-    if (digitalRead(BTN_ACTIVE_PIN) == 0) {
+    if (digitalRead(BTN_ACTIVE_PIN) == 1) {
       if (debug1)
         Serial.println(F("btn active 2"));
       pattern_cnt = 3;
       pattern_int = 100;
-      rgb_check(3);
+      rgb_check(10);
+
       if (oled_active) {
+        if (debug1)
+          Serial.println(F("oled inactive"));
+        display.begin();
+        display.fillScreen(RED);
+        display.setTextColor(WHITE);
+        display.setTextSize(2);
+        display.setCursor(25,15);
+        display.print("OLED");
+        display.setCursor(25,35);
+        display.print("OFF!");
+        delay(3000);
         oled_active = 0;
         oled_clear();
       } else {
+        if (debug1)
+          Serial.println(F("oled active"));
         oled_active = 1;
+//DEV_NOTE: need to check here if oled was active / initialized at boot
+//          if not, activate to eprom and reboot?
+        wake_display(&display);
+        display.begin();
+        display.fillScreen(GREEN);
+        display.setTextColor(BLACK);
+        display.setTextSize(2);
+        display.setCursor(25,15);
+        display.print("OLED");
+        display.setCursor(30,35);
+        display.print("ON!");
+        delay(3000);
+        oled_clear();
       }
     }
   }
-*/
 }
 
 void receiveEvent(int aCount) {
@@ -516,7 +593,17 @@ void requestCallback() {
         resp = serial_oled;
         break;  
 
+      case 'Y':
+        skip_splash = 1;
+        EEPROM.write(4,skip_splash);
+        delay(300);
+        reset_slave();
+        break;  
+
       case 'Z':
+        skip_splash = 0;
+        EEPROM.write(4,skip_splash);
+        delay(300);
         reset_slave();
         break;  
     }
@@ -534,20 +621,8 @@ void requestCallback() {
 }
 
 int get_distance(int side) {
-  int tpin = L_TRIGPIN;
-  int epin = L_ECHOPIN;
-  if (side) {
-    tpin = R_TRIGPIN;
-    epin = R_ECHOPIN;
-  }
-  digitalWrite(tpin, LOW);
-  delayMicroseconds(2);
-  digitalWrite(tpin, HIGH);
-  delayMicroseconds(8);
-  digitalWrite(tpin, LOW);
-  durationpulse = pulseIn(epin, HIGH);
-  int dist = durationpulse*0.034/2;
-  if (dist < MAX_DISTANCE) {
+  int dist = sonar[side].ping_cm();
+  if (dist <= MAX_DISTANCE) {
     if (side) {
       dist_r = dist;
       if (debug1) Serial.print(F("Right ultrasonic sensor:\t"));
@@ -556,29 +631,7 @@ int get_distance(int side) {
       if (debug1) Serial.print(F("Left ultrasonic sensor:\t\t"));
     }
   }
-/*  
-  unsigned int uS = 0;
-  int dist = 0;
-  if (side) {
-    uS = sonar_r.ping(); // Send ping, get ping time in microseconds (uS).
-    dist = sonar_r.convert_cm(uS); // Convert ping time to distance and print result (0 = outside set distance range, no ping echo)
-    if (dist < MAX_DISTANCE) {
-      dist_r = dist;
-      if (debug1) Serial.print(F("Right ultrasonic sensor:\t"));
-    }
-  } else {
-    uS = sonar_l.ping(); // Send ping, get ping time in microseconds (uS).
-    dist = sonar_l.convert_cm(uS); // Convert ping time to distance and print result (0 = outside set distance range, no ping echo)
-    if (dist < MAX_DISTANCE) {
-      dist_l = dist;
-      if (debug1) Serial.print(F("Left ultrasonic sensor:\t\t"));
-    }
-  }
-*/
-
-  if (dist < MAX_DISTANCE) {
-    if (debug1) Serial.println(dist);
-  }
+  if (debug1) Serial.print(side);Serial.print(" : ");Serial.println(dist);
 
   return dist;
 }
@@ -595,20 +648,25 @@ void oled_check(char cmd) {
     if (debug1) Serial.print(F("Print to OLED: "));
     if (debug1) Serial.println(cmd);
     wake_display(&display);
-    display.clearDisplay();
+    display.fillScreen(BLACK);
     display.setTextSize(2);
     display.setTextColor(WHITE);
     display.setCursor(0, 0);
     if (cmd == 97) { //a
-      display.println("Grrrrrrr!"); //wake
+      display.println("Grrrrr!"); //wake
     } else if (cmd == 98) { //b
       display.println("Stay!"); //stay
     } else if (cmd == 99) { //c
-      display.setCursor(0, 0);
-      display.print("Lt: ");
+      display.setTextSize(3);
+      display.setCursor(0, 10);
+      display.setTextColor(MAGENTA);
+      display.print("L:");
+      display.setTextColor(YELLOW);
       display.println(dist_l);
-      display.setCursor(0, 20);
-      display.print("Rt: ");
+      display.setCursor(0, 40);
+      display.setTextColor(MAGENTA);
+      display.print("R:");
+      display.setTextColor(YELLOW);
       display.println(dist_r);
     } else if (cmd == 100) { //d
       display.println("March!"); //march
@@ -637,7 +695,7 @@ void oled_check(char cmd) {
     } else if (cmd == 108) {  //l
       display.println("Ready!"); //ready
     }
-    display.display();
+//    display.display();
     oled_command = 0;
     oledClearInterval = 5000;
     lastOLEDClear = millis();
@@ -649,19 +707,56 @@ void oled_check(char cmd) {
 void oled_clear() {
   if (oled_command == 0) {
     if (debug1) Serial.println(F("Clear OLED"));
-    display.clearDisplay();
+//    display.clearDisplay();
+    display.fillScreen(BLACK);
     sleep_display(&display);
   }
   oledClearInterval = 5000000;
   lastOLEDClear = millis();
 }
 
-void sleep_display(Adafruit_SSD1306* display) {
-  display->ssd1306_command(SSD1306_DISPLAYOFF);
+/**************************************************************************/
+/*!
+    @brief  Renders a simple test pattern on the LCD
+*/
+/**************************************************************************/
+void lcdTestPattern(void)
+{
+  uint8_t w,h;
+  display.setAddrWindow(0, 0, 96, 64);
+
+  for (h = 0; h < 64; h++) {
+    for (w = 0; w < 96; w++) {
+      if (w > 83) {
+        display.writePixel(w, h, WHITE);
+      } else if (w > 71) {
+        display.writePixel(w, h, BLUE);
+      } else if (w > 59) {
+        display.writePixel(w, h, GREEN);
+      } else if (w > 47) {
+        display.writePixel(w, h, CYAN);
+      } else if (w > 35) {
+        display.writePixel(w, h, RED);
+      } else if (w > 23) {
+        display.writePixel(w, h, MAGENTA);
+      } else if (w > 11) {
+        display.writePixel(w, h, YELLOW);
+      } else {
+        display.writePixel(w, h, BLACK);
+      }
+    }
+  }
+  display.endWrite();
 }
 
-void wake_display(Adafruit_SSD1306* display) {
-  display->ssd1306_command(SSD1306_DISPLAYON);
+void sleep_display(Adafruit_SSD1331* display) {
+//  display->ssd1331_command(SSD1331_DISPLAYOFF);
+    display->enableDisplay(0);
+}
+
+void wake_display(Adafruit_SSD1331* display) {
+//  display->ssd1331_command(SSD1331_DISPLAYON);
+    display->enableDisplay(1);
 }
 
 
@@ -827,6 +922,7 @@ void colorWipeWave(uint32_t c) {
   if (!current_led) {
     wipe_eyes();
   } else {  
+    if (pattern_cnt) pattern_cnt--;
     led_eyes.setPixelColor((current_led-1), c);
     led_eyes.show();
   }
@@ -916,6 +1012,27 @@ void blink_rgb(int rgb_val[3], int rgb_val2[3]) {
 
   lastRGBUpdate = millis();
 }
+
+
+void load_ep_data() {
+  //retrieve stored vars from eprom
+  debug1 = EEPROM.read(0);
+  rgb_active = EEPROM.read(1);
+  oled_active = EEPROM.read(2);
+  uss_active = EEPROM.read(3);
+  skip_splash = EEPROM.read(4);
+}
+
+
+void save_ep_data() {
+  //save vars to eprom
+  EEPROM.write(0,debug1);
+  EEPROM.write(1,rgb_active);
+  EEPROM.write(2,oled_active);
+  EEPROM.write(3,uss_active);
+  EEPROM.write(4,skip_splash);
+}
+
 
 void reset_slave() {
   digitalWrite(RESET_PIN, LOW);

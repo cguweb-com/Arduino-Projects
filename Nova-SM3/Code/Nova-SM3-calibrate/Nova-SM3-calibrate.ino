@@ -3,10 +3,10 @@
 
 //set which servos to home / activate for calibration
 byte calibServo[TOTAL_SERVOS] = {
-  0, 1, 1,                          //RFx
-  0, 1, 1,                          //LFx
-  0, 1, 1,                          //RRx
-  0, 1, 1,                          //LRx
+  1, 1, 1,                          //RFx
+  1, 1, 1,                          //LFx
+  1, 1, 1,                          //RRx
+  1, 1, 1,                          //LRx
 };
 
 //run calibration test(s)
@@ -14,8 +14,8 @@ byte calibServo[TOTAL_SERVOS] = {
 //      when running multiple tests with multiple servos/legs
 //
 int spd = 5;                        //speed of servo movements (higher=slower)
-int calib_loops = 1;                //how many times to run test(s)
-byte test_sweep = 0;                //sweep active servo(s) from home-to-max-to-min-to-home
+int calib_loops = 2;                //how many times to run test(s)
+byte test_sweep = 1;                //sweep active servo(s) from home-to-max-to-min-to-home
 byte test_min = 0;                  //move active servo(s) to min position
 byte test_max = 0;                  //move active servo(s) to max position
 byte test_home = 1;                 //move active servo(s) to home position
