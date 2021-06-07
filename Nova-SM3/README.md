@@ -33,7 +33,7 @@ I'd be happy to answer any questions, and/or receive any type of feedback... hap
 
 ##
 ### PARTS LIST
-   parts list is maintained on the Instructables page, its become to much to maintain multiple html editor versions of it (why everyone just doesn't use HTML is beyond me!)
+   The full linked parts list is now maintained on the Instructables page only. My apologies, but its become too much work to maintain multiple html editor versions of it (why everyone just doesn't use HTML is beyond me!)
    https://www.instructables.com/Nova-Spot-Micro-a-Spot-Mini-Clone/
 
 
