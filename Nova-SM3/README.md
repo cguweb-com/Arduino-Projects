@@ -12,9 +12,9 @@ I'd be happy to answer any questions, and/or receive any type of feedback... hap
 ##    
 ## PROJECT NOTES  
 
-   Version: **4.1**
+   Version: **5.0**
 
-   Version Date: **2021-04-30**
+   Version Date: **2021-06-07**
 
 
    Author:  **Chris Locke** - cguweb@gmail.com
@@ -41,23 +41,21 @@ I'd be happy to answer any questions, and/or receive any type of feedback... hap
 ##    
 ### RELEASE NOTES  
 
-      - Arduino mega performance: 36% storage / 33% memory
-      - re-calibrated servo home positions to balance Nova's COG!!
-      - added setup() delay to prevent hardware reset execution 
-      - added skip_splash variable to disable boot graphics 
-      - step_march: new gait using joysticks to control "fake" kinematics :)
+      - Teensy 4.0 performance: 5% storage / 22% memory
+      - Replaced Arduino Mega with Teensy 4.0
+      - Replaced PS2 Library with Teensy version
+      - : https://github.com/KurtE/Arduino-PS2X
+      - Code for Second i2c Bus      
+      - Code for On/Off Button
+      - Replaced IMU/MPU6050 Code / Library
+      - : https://github.com/kriswiner/MPU6050
+      - Restructured setup() routine and startup debugging
+      - Removed unused SPI library
 
 ##    
 ### DEV NOTES  
 
       - [ ] BUG: ramping: on interruption of ramp, servo speed is set to the speed of the point of interrupt
-      - [x] re-calibrate servo home positions to balance Nova's COG!! seems to be back-heavy
-      - [ ] x_axis: tweak pattern, adjusting use of move_steps to not near fall over backwards on startup
-      - [x] finish tweaking left and right stepping
-      - [x] finish forward step (w/ left, right, backwards!)
-      - [x] write a z-axis control that is sticky, so it maintains the set height on subsequent moves
-      - [x] write a stable fixed speed / step walking routine
-      - [ ] fix 'stay' routine (ie: tends to fall backward when coming off of kneel or sit positions into stay)
       - [ ] work on integrating MPU data into movements
 
       see **DEV NOTES** in code comments for more bugs/tasks
