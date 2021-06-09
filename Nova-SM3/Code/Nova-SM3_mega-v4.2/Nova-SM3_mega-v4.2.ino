@@ -4983,35 +4983,20 @@ int pwm_to_degrees(int pulse_wide, int mxw, int mnw, int rng) {
    -------------------------------------------------------
 */
 void serial_check() {
-  if (serial_active) {
-    while (Serial.available()) {
-      delay(2);  //delay to allow byte to arrive in input buffer
-      char c = Serial.read();
-      if (c != ' ' && c != '\n') {  //strip spaces and newlines
-        if (c == ',') {  //end command
-          serial_command(serial_input);
-          serial_input="";
-        } else {  //build command
-          serial_input += c;
-        }
-      }
+  if (serial_active && Serial.available() > 0) {
+    ByteReceived = Serial.read();
+    if (debug6) {
+      Serial.print(ByteReceived);Serial.print("\t");
+      Serial.print(ByteReceived, HEX);Serial.print("\t");
+      Serial.println(char(ByteReceived));
     }
-  
-    if (serial_input.length() > 0) {  //end read
-      serial_command(serial_input);
-      serial_input="";
-    } 
-  }
-}
 
-
-void serial_command(String cmd) {
-  if (cmd) {
-    if (cmd == "stop") {
+    switch (ByteReceived) {
+      case '0':
         if (!plotter) Serial.println(F("stop!"));
         set_stop_active();
         set_home();
-/*
+        break;    
       case 91:
         if (!plotter) Serial.print(F("move_steps -5: "));
         if (move_steps > move_steps_min) {
@@ -5108,8 +5093,7 @@ void serial_command(String cmd) {
         spd = 30;
         set_speed();
         break;
-*/
-    } else if (cmd == "vars") {
+      case 'z':
         if (!plotter) {
           Serial.println();
           Serial.println(F("---------------------------------------"));
@@ -5144,11 +5128,7 @@ void serial_command(String cmd) {
           Serial.println();
           Serial.println();
         }
-      } else {
-        Serial.print(cmd);
-        Serial.println(F(" is not a valid command.\nTry again, else type 'h' for Help."));
-      }
-/*
+        break;
       case 'o':
         if (oled_active) {
           if (!plotter) Serial.println(F("test OLED begin"));
@@ -5186,7 +5166,6 @@ void serial_command(String cmd) {
         z_dir = 0;
         step_weight_factor = 1.20;
         move_steps = 25;
-        if (mpu_is_active) mpu_active = 0;
         move_march = 1;
         break;
       case 'f':
@@ -5281,22 +5260,7 @@ void serial_command(String cmd) {
         move_forward = 1;
         break;
       case 'j':
-        if (mpu_is_active) {
-          if (mpu_active) {
-            if (!plotter) Serial.println(F("mpu off!"));
-            mpu_active = 0;
-            if (!plotter) Serial.println(F("set_home"));
-            set_home();
-          } else {
-            if (!plotter) Serial.println(F("mpu on!"));
-            mpu_active = 1;
-//            if (!plotter) Serial.print(F("mpu roll/pitch: "));Serial.print(mpu_mroll);Serial.print(F(" / "));Serial.println(mpu_mpitch);
-//            set_axis(mpu_mroll, mpu_mpitch);
-          }
-        } else {
-          if (!plotter) Serial.println(F("set_home"));
-          set_home();
-        }
+
         break;
       case 'a':
         if (!plotter) Serial.println(F("wake"));
@@ -5405,7 +5369,6 @@ void serial_command(String cmd) {
           }
           noTone(BUZZ);         
         }
-        if (mpu_is_active) mpu_active = 1;
         break;
       case 125:
         if (!plotter) { Serial.println("debug pir follow on"); }
@@ -5419,9 +5382,7 @@ void serial_command(String cmd) {
           }
           noTone(BUZZ);         
         }
-        if (mpu_is_active) mpu_active = 0;
         break;
-
       case 'h':
         Serial.println();
         Serial.println(F("\t-----------------------------------------"));
@@ -5487,9 +5448,9 @@ void serial_command(String cmd) {
         Serial.println(F("Type a command code or 'h' for help:"));
         break;
     }
-*/
   }
 }
+
 
 
 void test_oled() {
