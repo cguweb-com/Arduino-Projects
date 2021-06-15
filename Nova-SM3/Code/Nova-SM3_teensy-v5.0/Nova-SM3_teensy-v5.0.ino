@@ -194,8 +194,8 @@ String serial_input;
 
 
 //amperage monitor
-#define AMP_PIN A2
-#define PWR_PIN 4
+#define AMP_PIN A1
+#define PWR_PIN 2
 unsigned int ampInterval = 15000;
 unsigned long lastAmpUpdate = 0;
 int amp_cnt = 0;
