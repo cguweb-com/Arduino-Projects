@@ -40,7 +40,7 @@ I'd be happy to answer any questions, and/or receive any type of feedback... hap
 ### STL Files
    STL files have markings on them to aid in orientation when assembling Nova. Please use the following legend if you have trouble with any parts.
 
-   ##Frame 
+   **Frame** 
    
       - T = Top of the part (this side will be the closest to the sky) 
       
@@ -59,7 +59,7 @@ I'd be happy to answer any questions, and/or receive any type of feedback... hap
       - RO = Rear Outer 
       
 
-   ##Legs
+   **Legs**
    
       - Has an arrow pointing in towards the belly of NOVA  
    
@@ -67,7 +67,7 @@ I'd be happy to answer any questions, and/or receive any type of feedback... hap
       
       - R = Right side 
    
-   ##Covers 
+   **Covers** 
    
       - BR = Bottom Rear piece 
       
@@ -77,7 +77,7 @@ I'd be happy to answer any questions, and/or receive any type of feedback... hap
       
       - TF = Top Front Piece  
 
-   ##Head and Rear 
+   **Head and Rear** 
    
       - T = Top (point towards sky) 
 
