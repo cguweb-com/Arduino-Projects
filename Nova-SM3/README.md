@@ -5,7 +5,7 @@ This github project contains the 3D STL files, parts list, electrical diagrams, 
 
 These files were not created with public consumption in mind, and are constantly under development, so use at your own risk!  
 
-A list of links (yes, Amazon affiliate links!) to all of the hardware components used can be found below for this project.  
+A list of links (yes, Amazon affiliate links!) to all of the hardware components used can be found on Nova's website at https://novaspotmicro.com  
 
 I'd be happy to answer any questions, and/or receive any type of feedback... happy hacking!  
 
@@ -19,23 +19,50 @@ I'd be happy to answer any questions, and/or receive any type of feedback... hap
 
    Author:  **Chris Locke** - cguweb@gmail.com
 
-   GitHub Project:  https://github.com/cguweb-com/Arduino-Projects/tree/main/Nova-SM3
+   Nova's Website:  https://novaspotmicro.com
 
-   Thingiverse:  https://www.thingiverse.com/thing:4767006
+   GitHub Project:  https://github.com/cguweb-com/Arduino-Projects/tree/main/Nova-SM3
 
    Discord Server:  https://discord.gg/Fj8NsHED
 
    YouTube Playlist:  https://www.youtube.com/watch?v=00PkTcGWPvo&list=PLcOZNHwM_I2a3YZKf8FtUjJneKGXCfduk
 
-   (under construction)
-   Instructables Project:  https://www.instructables.com/Nova-Spot-Micro-a-Spot-Mini-Clone/
 
 
 ##
 ### PARTS LIST
-   The full linked parts list is now maintained on the Instructables page only. My apologies, but its become too much work to maintain multiple html editor versions of it (why everyone just doesn't use HTML is beyond me!)
+   The full linked parts list is now maintained on Nova's website only. My apologies, but its become too much work to maintain multiple versions of it across different platforms.
    
-   https://www.instructables.com/Nova-Spot-Micro-a-Spot-Mini-Clone/
+   https://novaspotmicro.com/parts-list/
+
+
+##
+### STL Files
+   STL files have markings on them to aid in orientation when assembling Nova. Please use the following legend if you have trouble with any parts.
+
+   Frame 
+      - T = Top of the part (this side will be the closest to the sky) 
+      - FO = Front Outer piece (Most outer part of the front (head)) 
+      - FM = Front Middle piece (Attaches between FI and FO) 
+      - FI = Front Inner piece (Attaches to the front of the chassis) 
+      - F = Front (arrow points to head of NOVA) 
+      - RI = Rear Inner (Closest to chassis) 
+      - RM = Rear Middle 
+      - RO = Rear Outer 
+
+   Legs - Has an arrow pointing in towards the belly of NOVA  
+      - L = Left side (NOVA’s Left – from standing behind her)
+      - R = Right side 
+   
+   Covers 
+      - BR = Bottom Rear piece 
+      - BF = Bottom Front piece 
+      - TR = Top Rear Piece 
+      - TF = Top Front Piece  
+
+   Head and Rear 
+      - T = Top (point towards sky) 
+
 
 
 ##    
