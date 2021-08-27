@@ -1,3 +1,4 @@
+This project is licensed under the terms of the MIT license.
 
 # Nova SM3 - a Spot-Mini Micro clone
 ![Nova-SM3](https://raw.githubusercontent.com/cguweb-com/Arduino-Projects/main/Nova-SM3/novasm3.png)  
