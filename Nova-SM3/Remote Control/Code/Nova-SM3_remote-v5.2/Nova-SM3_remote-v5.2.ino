@@ -577,7 +577,7 @@ void check_buttons() {
       wfillcircle(2,96,15,10);
       led_strip.setPixelColor(2, led_strip.Color(255, 0, 0));
     } else {
-      bfillcircle(2,9615,10);
+      bfillcircle(2,96,15,10);
       led_strip.setPixelColor(2, led_strip.Color(0, 0, 0));
     }
     led_strip.show();
