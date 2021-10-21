@@ -42,8 +42,8 @@ int  test_steps = 0;
 #define VERSION 5.2
 
 //debug vars for displaying operation runtime data for debugging
-const byte debug  = 1;            //general messages
-const byte debug1 = 1;            //remote commands and pir sensors
+const byte debug  = 0;            //general messages
+const byte debug1 = 0;            //remote commands and pir sensors
 const byte debug2 = 0;            //debug servo steps
 const byte debug3 = 0;            //ramping and sequencing
 const byte debug4 = 0;            //amperage and battery 
@@ -227,6 +227,12 @@ uint8_t rc_data[data_num] = {     //receive data array
   0, 0, 0, 0,                     //p1, p2, p3, p4
   0, 0, 0, 0                      //lx, ly, rx, ry
 };
+uint8_t tm_data[data_num] = {     //transmit data array
+  0, 0, 0,                        //battery, spd, volume
+  0, 0, 0,                        //move_steps, step_weight_factor, step_height_factor
+  0, 0, 0, 0,                     //
+  0, 0, 0, 0                      //
+};
 //init remote control vars
 uint8_t btn1 = 0, btn2 = 0, btn3 = 0, btn4 = 0;
 uint8_t btn1p = 0, btn2p = 0, btn3p = 0, btn4p = 0;
@@ -268,7 +274,7 @@ float amp_limit = 6.5;          //aperage draw limit before triggering alarms
 
 //battery monitor
 #define BATT_MONITOR A1
-unsigned long batteryInterval = 3000;
+unsigned long batteryInterval = 20000;
 unsigned long lastBatteryUpdate = 0;
 int batt_cnt = 0;
 float batt_voltage = 11.8;                          //approx fully charged battery minimum nominal voltage
@@ -713,9 +719,10 @@ void setup() {
       nrf_radio.setPALevel(RF24_PA_LOW);
       nrf_radio.setPayloadSize(sizeof(rc_data));
       nrf_radio.setChannel(124);
-      nrf_radio.openWritingPipe(address[radioNumber]);
       nrf_radio.openReadingPipe(1, address[!radioNumber]);
+      nrf_radio.enableAckPayload();
       nrf_radio.startListening();
+      nrf_radio.writeAckPayload(1, &tm_data, sizeof(tm_data)); // pre-load data
       if (debug8) Serial.println(F("radio hardware is ready and listening!"));
     }
   }
@@ -999,8 +1006,10 @@ bool nrf_check() {
     nrf_radio.read(&rc_data, bytes);
     resp = true;
 
-    //set remote control vars from nrf received data
+    //send data as acknowledgement
+    nrf_ack();
 
+    //set remote control vars from nrf received data
     //fire buttons
     btn1 = rc_data[0];
     btn2 = rc_data[1];
@@ -1027,12 +1036,33 @@ bool nrf_check() {
       for (int i = 0; i < data_num; i++) {
         Serial.print(rc_data[i]);Serial.print("\t");
       }
-      Serial.println(" ");
+      Serial.println(" DATA REC");
     }
   }
   lastNRFUpdate = millis();
 
   return resp;
+}
+
+
+void nrf_ack() {
+
+    //set data
+    float bv = (batt_voltage / 2) * 10;
+    tm_data[0] = bv;
+    tm_data[1] = spd;
+    tm_data[2] = sound_vol;
+    tm_data[3] = move_steps;
+    tm_data[4] = (step_weight_factor * 100);
+    tm_data[5] = (step_height_factor * 100);
+    
+    if (debug8) {
+      for (int i = 0; i < data_num; i++) {
+        Serial.print(tm_data[i]);Serial.print("\t");
+      }
+      Serial.println(" ACK SENT");
+    }
+    nrf_radio.writeAckPayload(1, &tm_data, sizeof(tm_data)); // load the payload for the next time
 }
 
 
@@ -1076,7 +1106,7 @@ Serial.println(sel2p);
               y_dir = 0;
               x_dir = 0;
               z_dir = 0;
-              move_steps = 30;
+//              move_steps = 30;
               move_march = 1;
               if (oled_active) {
                 oled_request((char*)"d");
@@ -1203,7 +1233,7 @@ Serial.println(sel2p);
 
         //DEVNOTE: make this switchable via remote
         //set move_steps to min 40 to maintain march-in-place
-        move_steps = map(rx, 0, 255, 40, move_steps_max + (move_steps_max * 0.2));
+//        move_steps = map(rx, 0, 255, 40, move_steps_max + (move_steps_max * 0.2));
 
       } else if (remote_select == 2) {
 
@@ -1377,8 +1407,6 @@ Serial.println(sel2p);
               rgb_request((char*)"Hi");
             }
             //battery check
-            lastBatteryUpdate = 0;
-            batt_voltage_prev = 0;
             battery_check(1);
           }
       }
@@ -1608,7 +1636,6 @@ Serial.println(sel2p);
 
 //DEV: until good pots are used, only allow operation on mode 4 stopped
 
-if (!remote_start_stop && remote_select == 4) {
 
       //set step_weight_factor from pot 1
       if (p1 != p1p && (p1 > (p1p + pot_threshold) || p1 < (p1p - pot_threshold))) {
@@ -1623,20 +1650,15 @@ if (!remote_start_stop && remote_select == 4) {
       }
 
       //set speed from pot 2
-      if (p2 != p2p && (p2 > (p2p + (pot_threshold * 4)) || p2 < (p2p - (pot_threshold * 4)))) {
+      if (p2 != p2p && (p2 > (p2p + pot_threshold) || p2 < (p2p - pot_threshold))) {
         p2p = p2;
         if (remote_select == 1 || remote_select == 2 || remote_select == 3 || remote_select == 4) {
-          if (!p2t) {
-            p2t = pot_threshold;
-            if (debug1) 
-              Serial.print(F("set speed : "));
-            spd = map(p2, pot_min, pot_max, (min_spd * 100), (max_spd * 100)) / 100;
-            set_speed();
-            if (debug1)
-              Serial.println(spd);
-          } else {
-            p2t--;
-          }
+          if (debug1) 
+            Serial.print(F("set speed : "));
+          spd = map(p2, pot_min, pot_max, (min_spd * 100), (max_spd * 100)) / 100;
+          set_speed();
+          if (debug1)
+            Serial.println(spd);
         }
       }
 
@@ -1668,7 +1690,6 @@ if (!remote_start_stop && remote_select == 4) {
           }
         }
       }
-}    
     }
   }
 
@@ -2274,11 +2295,13 @@ void battery_check(byte bshow) {
   int syshalt = 0;
   int batt_danger = 0;
   int sensorValue = analogRead(BATT_MONITOR);
-  batt_voltage = sensorValue * (3.3 / 1023.00) * 3.47;     // Convert the reading values from 3.3v to 12V
+  batt_voltage = sensorValue * (3.3 / 1023.00) * 5.7;     // Convert the reading values from 3.3v to 12V
 
-  if (batt_voltage <= (batt_voltage_prev - .05) || bshow) {
+  if (batt_voltage && ((batt_voltage <= (batt_voltage_prev - .05)) || (batt_voltage >= (batt_voltage_prev + .05)) || bshow)) {
     if (batt_cnt == 3 || bshow) {
-      batt_voltage = avg_volts / batt_cnt;
+      if (batt_cnt > 1) {
+        batt_voltage = avg_volts / batt_cnt;
+      }
       for (int i = 0; i < 9; i++) {
         if (batt_voltage <= batt_levels[i]) {
           batt_danger++;
@@ -2286,6 +2309,7 @@ void battery_check(byte bshow) {
           batt_danger = i;
         }
       }
+
       if (debug4 || debug1) {
         Serial.print(batt_voltage); Serial.print(" volts - BATTERY LEVEL #"); Serial.println(batt_danger);
       }
@@ -2552,6 +2576,7 @@ void set_speed() {
   for (int i = 0; i < TOTAL_SERVOS; i++) {
     servoSpeed[i] = spd;
   }
+  
   //recalc speed factor
   spd_factor = mapfloat(spd, min_spd, max_spd, min_spd_factor, max_spd_factor);
   if (rgb_active) {

@@ -11,7 +11,8 @@ float VERSION = 5.2;
 int debug = 0;                    //general debugging
 int debug2 = 0;                   //nrf24 serial comm
 int debug3 = 0;                   //controls to serial
-int debug4 =  0;                   //controls interactive test mode 
+int debug4 =  0;                  //controls interactive test mode 
+int debug5 =  0;                  //battery monitor 
 int plotter = 0;                  //control to plotter (also set debug3 = 1)
 
 byte nrf_active = 1;
@@ -152,6 +153,8 @@ int s3p = 0;
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 unsigned int oledInterval = 90;
 unsigned long lastOLEDUpdate = 0;
+unsigned int displayInterval = 30;
+unsigned long lastDisplayUpdate = 0;
   
 #define OLED_ADDR2 0x3C
 #define SCREEN_WIDTH2 128
@@ -162,20 +165,20 @@ unsigned long lastOLED2Update = 0;
 
 //battery monitor
 #define BATT_MONITOR A3
-unsigned long batteryInterval = 60000;             //60 seconds
+unsigned long batteryInterval = 30000;             //30 seconds
 unsigned long lastBatteryUpdate = 0;
-unsigned long battdispInterval = 15000;            //10 seconds
-unsigned long lastBatteryDisplay = (millis() + battdispInterval);
 int batt_cnt = 0;
 float batt_voltage = 7.4;                          //approx fully charged battery minimum nominal voltage
 float batt_voltage_prev = 7.4;                     //comparison voltage to prevent false positives
+float batt_voltage2 = 11.4;                        //approx fully charged Nova battery minimum nominal voltage
+float batt_voltage_prev2 = 11.4;                   //comparison voltage to prevent false positives
 float avg_volts = 0;
 float batt_levels[10] = {                           //voltage drop alarm levels(10)
    7.3, 7.1, 6.9, 6.7
 };
 
 //misc vars
-unsigned int controlsInterval = 50;
+unsigned int controlsInterval = 10;
 unsigned long controlsUpdate = 0;
 
 
@@ -271,8 +274,9 @@ void setup() {
       radio.setPayloadSize(sizeof(tm_data));
       radio.setChannel(124);
       radio.openWritingPipe(address[radioNumber]);
-      radio.openReadingPipe(1, address[!radioNumber]);
-      radio.stopListening();
+      radio.enableAckPayload();
+      radio.setRetries(5,5); // delay, count
+
       if (debug2) Serial.println(F("radio ready to transmit"));
     }
   }
@@ -389,8 +393,9 @@ void loop() {
   if (millis() - lastRGBUpdate > rgbInterval) rgb_check(pattern);
   if (millis() - lastOLEDUpdate > oledInterval) oled_refresh();
   if (millis() - lastOLED2Update > oled2Interval) oled2_refresh();
+  if (millis() - lastDisplayUpdate > displayInterval) update_display(0);
+
   if (batt_active) {
-    if (millis() - lastBatteryDisplay > battdispInterval) battery_check(2); 
     if (millis() - lastBatteryUpdate > batteryInterval) battery_check(0); 
   }
 
@@ -444,11 +449,21 @@ bool nrf_check() {
   if (tm_data) {
     resp = radio.write(&tm_data, sizeof(tm_data));
     if (resp) {
+      if (radio.isAckPayloadAvailable()) {
+        radio.read(&rc_data, sizeof(rc_data));
+        if (debug2) {
+          for (int i = 0; i < data_num; i++) {
+            Serial.print(rc_data[i]);Serial.print("\t");
+          }
+          Serial.println(" ACK REC");
+        }
+      }
+
       if (debug2) {
         for (int i = 0; i < data_num; i++) {
           Serial.print(tm_data[i]);Serial.print("\t");
         }
-        Serial.println(" ");
+        Serial.println(" DATA SENT");
       }
     } else {
       //handle failed transmission
@@ -457,32 +472,13 @@ bool nrf_check() {
         Serial.println(" ");
       }
     }
+
+    lastNRFUpdate = millis();
   }
 
   return resp;
 }
 
-
-//DEV: for currently unused two-way communication
-void nrf_request(int req_data) {
-  //make a request expecting a response
-  bool resp = radio.write(&req_data, sizeof(req_data));
-  if (resp) {
-    uint8_t pipe;
-    radio.startListening();
-    if (radio.available(&pipe)) {             // is there a payload? get the pipe number that recieved it
-        uint8_t bytes = radio.getPayloadSize(); // get the size of the payload
-        radio.read(&rc_data, bytes);            // fetch payload from FIFO
-        Serial.print(F("Received "));
-        Serial.print(bytes);                    // print the size of the payload
-        Serial.print(F(" bytes on pipe "));
-        Serial.print(pipe);                     // print the pipe number
-        Serial.print(F(": "));
-        Serial.println(rc_data[0]);                // print the payload's value
-    }
-    radio.stopListening();
-  }
-}
 
 
 /*
@@ -524,7 +520,7 @@ PSB_R3
 */
 
 void check_pots() {
-  int update_display = 0;
+  int updis = 0;
   if (debug4) {
     pot_max = 128;    //adjust max to OLED pixel width for debug mode
   }
@@ -563,7 +559,7 @@ void check_pots() {
           if (per1 < 3 && per1 > -3) per1 = 0;
           if (per1 != pper1) {
             pper1 = per1;
-            update_display = 1;
+            updis = 1;
           }
         }
       }
@@ -604,7 +600,7 @@ void check_pots() {
           if (per2 < 3 && per2 > -3) per2 = 0;
           if (per2 != pper2) {
             pper2 = per2;
-            update_display = 1;
+            updis = 1;
           }
         }
       }
@@ -645,7 +641,7 @@ void check_pots() {
           if (per3 < 3 && per3 > -3) per3 = 0;
           if (per3 != pper3) {
             pper3 = per3;
-            update_display = 1;
+            updis = 1;
           }
         }
       }
@@ -686,14 +682,18 @@ void check_pots() {
           if (per4 < 3 && per4 > -3) per4 = 0;
           if (per4 != pper4) {
             pper4 = per4;
-            update_display = 1;
+            updis = 1;
           }
         }
       }
     }
   }
 
-  if (update_display) {
+//  if (updis) update_display(1);
+}
+
+void update_display(int dis) {
+  if (dis == 1) {
     display.clearDisplay();
 
     display.setCursor(0, 16);
@@ -727,7 +727,40 @@ void check_pots() {
     display.print("%");
 
     display.display();
+  } else {
+    display.clearDisplay();
+
+    display.setCursor(0, 16);
+    display.setTextSize(1);
+    display.print("SF");
+    display.setCursor(15, 16);
+    display.setTextSize(2);
+    display.print(float(float(rc_data[4]) / 100));
+    display.setCursor(67, 16);
+    display.setTextSize(1);
+    display.print("SP");
+    display.setCursor(79, 16);
+    display.setTextSize(2);
+    display.print(rc_data[1]);
+
+    display.setCursor(0, 40);
+    display.setTextSize(1);
+    display.print("VO");
+    display.setCursor(15, 40);
+    display.setTextSize(2);
+    display.print(rc_data[2]);
+    display.setCursor(67, 40);
+    display.setTextSize(1);
+    display.print("MS");
+    display.setCursor(79, 40);
+    display.setTextSize(2);
+    display.print(rc_data[3]);
+
+    display.display();
+
+    lastDisplayUpdate = millis();
   }
+
 }
 
 void check_buttons() {
@@ -968,6 +1001,8 @@ void check_joysticks() {
     }
   }
 
+  controlsUpdate = millis();
+
   if (debug4) {
     display.clearDisplay();
     display.setTextSize(2);
@@ -1029,9 +1064,11 @@ void wdrawline(int d, int sx, int sy, int ex, int ey) {
 
 void oled_refresh() {
   display.display();
+  lastOLEDUpdate = millis();
 }
 void oled2_refresh() {
   display2.display();
+  lastOLED2Update = millis();
 }
 
 
@@ -1043,26 +1080,16 @@ void oled2_refresh() {
     :provide general description and explanation here
    -------------------------------------------------------
 */
-void battery_check(byte fshow) {
+void battery_check(byte bshow) {
   int syshalt = 0;
   int batt_danger = 0;
-
-//DEV: get value from Nova
-  float batt_voltage2 = 0.00;   
-
   int sensorValue = analogRead(BATT_MONITOR);
-  batt_voltage = sensorValue * (2.3 / 1023.00) * 3.22;     // Convert the reading values from 2.3v to 7.4V
+  batt_voltage = sensorValue * (5 / 1023.00) * 1.55;     // Convert the reading values from 5v to 7.5V
+  batt_voltage2 = ((float(rc_data[0]) * 2) / 10);
 
-  if (fshow == 1) {
-    display2.clearDisplay();
-    display2.setTextSize(2);
-    display2.setCursor(6,2);
-    display2.println("BATTERY");
-    display2.setCursor(6,19);
-    display2.print(batt_voltage);
-    display2.println(" VOLTS");
-    oled2_refresh();
-  } else if (fshow == 2) {
+Serial.print(rc_data[0]); Serial.println(" rc_data[0]");
+Serial.print(batt_voltage2); Serial.println(" batt_voltage2");
+
     display2.clearDisplay();
     display2.setTextSize(1);
     display2.setCursor(14,0);
@@ -1077,14 +1104,19 @@ void battery_check(byte fshow) {
     display2.print(batt_voltage2);
     display2.println("v");
     oled2_refresh();
-  }
 
   if (debug) {
-    Serial.print(batt_voltage); Serial.println(" volts");
+    Serial.print(batt_voltage); Serial.print(" volts ");
+    Serial.print(batt_voltage2); Serial.println(" volts2");
   }
-  if (batt_voltage <= (batt_voltage_prev - .05)) {
-    if (batt_cnt == 3) {
-      batt_voltage = avg_volts / batt_cnt;
+  if (batt_voltage2 && (batt_voltage2 <= (batt_voltage_prev2 - .05))) {
+    bshow = 1;
+  }
+  if ((batt_voltage && (batt_voltage <= (batt_voltage_prev - .05))) || bshow) {
+    if (batt_cnt == 3 || bshow) {
+      if (batt_cnt > 1) {
+        batt_voltage = avg_volts / batt_cnt;
+      }
       for (int i = 0; i < 4; i++) {
         if (batt_voltage <= batt_levels[i]) {
           batt_danger++;
@@ -1092,46 +1124,48 @@ void battery_check(byte fshow) {
           batt_danger = i;
         }
       }
-      if (debug || debug2) {
+      if (debug || debug5) {
         Serial.print(batt_voltage); Serial.print(" volts - BATTERY LEVEL #"); Serial.println(batt_danger);
       }
+
+      if (!bshow) {
+        display2.clearDisplay();
+        display2.setTextSize(2);
+        if (batt_danger > 3) {
+          display2.setCursor(12,2);
+          display2.println("BATT LOW");
+          display2.setCursor(6,18);
+          display2.println("SYSTEM HALT");
+          syshalt = 1;
   
-      display2.clearDisplay();
-      display2.setTextSize(2);
-      if (batt_danger > 3) {
-        display2.setCursor(12,2);
-        display2.println("BATT LOW");
-        display2.setCursor(6,18);
-        display2.println("SYSTEM HALT");
-        syshalt = 1;
-
-        cur_rgb_val1[0] = 255; cur_rgb_val1[1] = 0; cur_rgb_val1[2] = 0;
-        cur_rgb_val2[0] = 0; cur_rgb_val2[1] = 0; cur_rgb_val2[2] = 0;
-        rgb_num = 99;
-        pattern = 9;
-        pattern_cnt = 10;
-        pattern_int = 5;
-      } else {
-        display2.setCursor(6,2);
-        display2.println("BATTERY");
-        display2.setCursor(6,19);
-        display2.print(batt_voltage);
-        display2.println(" VOLTS");
-
-        cur_rgb_val1[0] = 255; cur_rgb_val1[1] = 255; cur_rgb_val1[2] = 0;
-        cur_rgb_val2[0] = 0; cur_rgb_val2[1] = 0; cur_rgb_val2[2] = 0;
-        rgb_num = 99;
-        pattern = 9;
-        pattern_cnt = 10;
-        pattern_int = 5;
+          cur_rgb_val1[0] = 255; cur_rgb_val1[1] = 0; cur_rgb_val1[2] = 0;
+          cur_rgb_val2[0] = 0; cur_rgb_val2[1] = 0; cur_rgb_val2[2] = 0;
+          rgb_num = 99;
+          pattern = 9;
+          pattern_cnt = 10;
+          pattern_int = 5;
+        } else if (batt_danger > 0) {
+          display2.setCursor(6,2);
+          display2.println("BATT WARN");
+          display2.setCursor(6,19);
+          display2.print(batt_voltage);
+          display2.println(" VOLTS");
+  
+          cur_rgb_val1[0] = 255; cur_rgb_val1[1] = 255; cur_rgb_val1[2] = 0;
+          cur_rgb_val2[0] = 0; cur_rgb_val2[1] = 0; cur_rgb_val2[2] = 0;
+          rgb_num = 99;
+          pattern = 9;
+          pattern_cnt = 10;
+          pattern_int = 5;
+        }
+        oled2_refresh();
       }
-      oled2_refresh();
       batt_voltage_prev = batt_voltage;
       batt_cnt = 0;
       avg_volts = 0; 
        
       if (syshalt) {
-        if (debug || debug2) {
+        if (debug || debug5) {
           Serial.print(batt_voltage); Serial.println(F(" volts - SYSTEM HALTED!"));
         }
         while(1) {           //simulate system halt
@@ -1141,7 +1175,7 @@ void battery_check(byte fshow) {
     } else {
       batt_cnt++;
       avg_volts += batt_voltage;
-      if (debug2) {
+      if (debug5) {
         Serial.print("batt change #"); Serial.print(batt_cnt); 
         Serial.print(": sensor / volts "); Serial.print(sensorValue); Serial.print(F(" / ")); Serial.println(batt_voltage);
       }
@@ -1149,7 +1183,6 @@ void battery_check(byte fshow) {
   }
 
   lastBatteryUpdate = millis();
-  lastBatteryDisplay = millis();
 }
 
 
