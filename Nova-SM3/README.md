@@ -24,7 +24,7 @@ I'd be happy to answer any questions, and/or receive any type of feedback... hap
 
    GitHub Project:  https://github.com/cguweb-com/Arduino-Projects/tree/main/Nova-SM3
 
-   Discord Server:  https://discord.gg/Fj8NsHED
+   Discord Server:  https://discord.gg/kwYCufegRr
 
    YouTube Playlist:  https://www.youtube.com/watch?v=00PkTcGWPvo&list=PLcOZNHwM_I2a3YZKf8FtUjJneKGXCfduk
 
