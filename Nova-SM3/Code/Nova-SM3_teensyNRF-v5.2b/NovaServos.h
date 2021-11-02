@@ -1,13 +1,36 @@
 /*
+ * 
  *   NovaSM3 - a Spot-Mini Micro clone
  *   Version: 5.2
- *   Version Date: 2021-10-10
+ *   Version Date: 2021-10-26
  *   
  *   Author:  Chris Locke - cguweb@gmail.com
+ *   Nova's website:  https://novaspotmicro.com
  *   GitHub Project:  https://github.com/cguweb-com/Arduino-Projects/tree/main/Nova-SM3
- *   Thingiverse:  https://www.thingiverse.com/thing:4767006
- *   Instructables Project:  https://www.instructables.com/Nova-Spot-Micro-a-Spot-Mini-Clone/
  *   YouTube Playlist:  https://www.youtube.com/watch?v=00PkTcGWPvo&list=PLcOZNHwM_I2a3YZKf8FtUjJneKGXCfduk
+ *     
+ *   Copyright (c) 2020-2021 Christopher M. Locke and others
+ *   Distributed under the terms of the MIT License. 
+ *   SPDX-License-Identifier: MIT
+ *   
+ *   Permission is hereby granted, free of charge, to any person obtaining
+ *   a copy of this software and associated documentation files (the
+ *   "Software"), to deal in the Software without restriction, including
+ *   without limitation the rights to use, copy, modify, merge, publish,
+ *   distribute, sublicense, and/or sell copies of the Software, and to
+ *   permit persons to whom the Software is furnished to do so, subject to
+ *   the following conditions:
+ *   
+ *   The above copyright notice and this permission notice shall be
+ *   included in all copies or substantial portions of the Software.
+ *   
+ *   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+ *   EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+ *   MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+ *   NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
+ *   LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+ *   OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+ *   WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  *   
 */
 
@@ -62,24 +85,25 @@ int servoSetup[TOTAL_SERVOS][2] = {       //driver ID, pin number
 };
 
 //groups servos into legs
-int servoLeg[TOTAL_LEGS][3] = {       //coxa, femu, tibia
-  {RFC,RFF,RFT},  {LFC,LFF,LFT},  {RRC,RRF,RRT},  {LRC,LRF,LRT},
+int servoLeg[TOTAL_LEGS][3] = {           //coxa, femu, tibia
+  {RFC,RFF,RFT},  {LFC,LFF,LFT},  
+  {RRC,RRF,RRT},  {LRC,LRF,LRT},
 };
 
 //sets home position of servos
 float servoHome[TOTAL_SERVOS] = {         //home pos
-  337, 280, 510,                          //RFx
-  364, 442, 225,                          //LFx
-  367, 331, 423,                          //RRx
-  364, 351, 213,                          //LRx
+  335, 280, 510,                          //RFx
+  370, 472, 285,                          //LFx
+  375, 331, 370,                          //RRx
+  374, 351, 213,                          //LRx
 };
 
 //sets min and max positions of servos
 float servoLimit[TOTAL_SERVOS][2] = {     //min, max
-  {314, 434}, {185, 515}, {365, 607},     //RFx 
-  {402, 282}, {537, 207}, {370, 128},     //LFx
-  {329, 449}, {236, 566}, {278, 520},     //RRx
-  {402, 282}, {446, 116}, {358, 116},     //LRx
+  {297, 417}, {185, 515}, {365, 607},     //RFx 
+  {408, 288}, {567, 237}, {430, 197},     //LFx
+  {337, 457}, {236, 566}, {225, 467},     //RRx
+  {412, 292}, {446, 116}, {358, 116},     //LRx
 };
 
 /*

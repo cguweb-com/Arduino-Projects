@@ -1,7 +1,8 @@
 /*
+ * 
  *   NovaSM3 - a Spot-Mini Micro clone
  *   Version: 5.2
- *   Version Date: 2021-10-10
+ *   Version Date: 2021-10-26
  *   
  *   Author:  Chris Locke - cguweb@gmail.com
  *   Nova's website:  https://novaspotmicro.com
@@ -16,21 +17,48 @@
  *      Added NRF Module and interface to NovaSMRemote
  *      Removed PS2 setup and interface
  *      Added DFPlayer Mini Pro as second option of MP3 player
+ *      Fixed volume pot
  *      Activated code for volume control of MP3 player if enabled
+ *      Fixed voltage divider / battery monitor equation
+ *      Removed piezo buzzer and TONE support
  *
  *
  *   DEV NOTES:
- *      teensy mpu / code is not playing as nicely as mega - not smooth movement! :(
- *      debug volume pot (jst soldering on switch panel!) code commented out
- *      debug PS2, not connecting, but powered
+ *      teensy mpu / code is not playing as nicely as with mega - not smooth movement! :(
+ *      work on integrating MPU data into movements
  *      adjust sensitivity of PIR (seems 12-24 inches too close)
  *      
  *      BUG: ramping: on interruption of ramp, servo speed is set to the speed of the point of interrupt
- *      work on integrating MPU data into movements
  *      
  *      
  *      see more 'DEV NOTE' comments in code for other bugs/tasks
  *      all 'DEV WORK' comments denote code that is currently under development and will be removed upon completion
+ *     
+ *   =============================================================
+ *     
+ *   Copyright (c) 2020-2021 Christopher M. Locke and others
+ *   Distributed under the terms of the MIT License. 
+ *   SPDX-License-Identifier: MIT
+ *   
+ *   Permission is hereby granted, free of charge, to any person obtaining
+ *   a copy of this software and associated documentation files (the
+ *   "Software"), to deal in the Software without restriction, including
+ *   without limitation the rights to use, copy, modify, merge, publish,
+ *   distribute, sublicense, and/or sell copies of the Software, and to
+ *   permit persons to whom the Software is furnished to do so, subject to
+ *   the following conditions:
+ *   
+ *   The above copyright notice and this permission notice shall be
+ *   included in all copies or substantial portions of the Software.
+ *   
+ *   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+ *   EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+ *   MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+ *   NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
+ *   LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+ *   OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+ *   WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+ *   
  *      
 */
 
@@ -74,8 +102,8 @@ byte batt_active = 1;             //activate battery level monitoring
 byte buzz_active = 0;             //activate simple tone sounds 
 byte melody_active = 1;           //activate melodic tone sounds 
 byte mp3_active = 1;              //activate if mp3 player installed
-byte splash_active = 0;           //show all loading graphics
-byte quick_boot = 1;              //skip most loading graphics & sounds
+byte splash_active = 1;           //show all loading graphics & sounds
+byte quick_boot = 0;              //skip most loading graphics & sounds
 
 
 //include supporting libraries
@@ -127,7 +155,7 @@ float ramp_spd = 5.00;            //default ramp speed multiplier
 //  23.fmodeon 24.fmodeoff 25.click1  
 DFRobot_PLAY DFPlayer;
 #define MP3_VOL_PIN A9
-unsigned int potInterval = 10000;
+unsigned int potInterval = 1000;
 unsigned long lastPotUpdate = 0;
 static const uint8_t PIN_MP3_TX = 1;
 static const uint8_t PIN_MP3_RX = 0; 
@@ -138,8 +166,11 @@ unsigned int mp3Interval = 50;
 unsigned long lastMP3Update = 0;
 int mp3_queue[5] = {0,0,0,0,0};   //DEV: queue of sounds to be played
 int mp3_status = 0;               //current playing status
-int vpot_max = 350;               //for crappy unreliable pots, set this to anything but pot max (1036)
-int vpot_min = 50;                //for crappy unreliable pots, set this to anything but pot min (0)
+int vpot_max = 350;               //for crappy unreliable pots, set this to your pot's max (-1036)
+int vpot_min = 50;                //for crappy unreliable pots, set this to your pot's min (+0)
+int vpot_loop = 8;                //for crappy unreliable pots, loop and average value
+int vpot_cnt = 0;                 //count of loops for average value
+int vpot_avg = 0;                 //total for loop and average value
 int vol_max = 25;                 //at mp3 player max of 30, small speakers distort - 25 is suggested
 int vol_min = 0;                  //set to 0 to essentially turn off sounds at lowest volume
 int sound_vol = 15;               //current volume (1-30)
@@ -229,8 +260,8 @@ uint8_t rc_data[data_num] = {     //receive data array
 };
 uint8_t tm_data[data_num] = {     //transmit data array
   0, 0, 0,                        //battery, spd, volume
-  0, 0, 0,                        //move_steps, step_weight_factor, step_height_factor
-  0, 0, 0, 0,                     //
+  0, 0, 0,                        //move_steps, step_weight_factor_front, step_weight_factor_rear
+  1, 0, 0, 0,                     //remote_select, start_mode
   0, 0, 0, 0                      //
 };
 //init remote control vars
@@ -244,10 +275,13 @@ uint8_t p1 = 0, p2 = 0, p3 = 0, p4 = 0;
 uint8_t p1p = 0, p2p = 0, p3p = 0, p4p = 0; 
 uint8_t lx = 0, ly = 0, rx = 0, ry = 0; 
 uint8_t lxp = 0, lyp = 0, rxp = 0, ryp = 0; 
-int pot_min = 0;                      //if pots are orientated opposing to this configuration, 
-int pot_max = 255;                    //swap these two values where min would be max value, and vice-versa
+int pot_min = 0;                     //if pots are orientated opposing to this configuration, 
+int pot_max = 255;                   //swap these two values where min would be max value, and vice-versa
 int remote_start_stop = 0;           //tracks remote start/stop mode
 int remote_select = 1;               //sets default button set
+byte start_mode = 0;                 //current start mode
+int spd_lock = 0;                    //switch to hold prev spd and allow code to control spd, and not input device(s)
+int step_lock = 0;                   //switch to hold prev steps and allow code to control move_steps, and not input device(s)
 
 
 //slave arduino and serial commands
@@ -274,7 +308,7 @@ float amp_limit = 6.5;          //aperage draw limit before triggering alarms
 
 //battery monitor
 #define BATT_MONITOR A1
-unsigned long batteryInterval = 20000;
+unsigned long batteryInterval = 30000;
 unsigned long lastBatteryUpdate = 0;
 int batt_cnt = 0;
 float batt_voltage = 11.8;                          //approx fully charged battery minimum nominal voltage
@@ -350,8 +384,9 @@ byte move_leg = 0;
 byte move_follow = 0;
 String move_paused = "";
 
-//vars used to compensate for center of gravity
-float step_weight_factor = 1.00;
+//vars used to compensate for center of gravity / momentum / inertia
+float step_weight_factor_front = 1.00;
+float step_weight_factor_rear = 1.00;
 float step_height_factor = 1.25;    //DEV: not used yet
 
 
@@ -364,24 +399,6 @@ float step_height_factor = 1.25;    //DEV: not used yet
 void set_ramp(int servo, float sp, float r1_spd, float r1_dist, float r2_spd, float r2_dist);
 void amperage_check(int aloop);
 void powering_down(void);
-
-//setup melodies
-#include "pitches.h"
-int melody[] = {
-  NOTE_B4, 16, NOTE_B5, 16, NOTE_FS5, 16, NOTE_DS5, 16, //1
-  NOTE_B5, 32, NOTE_FS5, -16, NOTE_DS5, 8, NOTE_C5, 16,
-  NOTE_C6, 16, NOTE_G6, 16, NOTE_E6, 16, NOTE_C6, 32, NOTE_G6, -16, NOTE_E6, 8,
-
-  NOTE_B4, 16,  NOTE_B5, 16,  NOTE_FS5, 16,   NOTE_DS5, 16,  NOTE_B5, 32,  //2
-  NOTE_FS5, -16, NOTE_DS5, 8,  NOTE_DS5, 32, NOTE_E5, 32,  NOTE_F5, 32,
-  NOTE_F5, 32,  NOTE_FS5, 32,  NOTE_G5, 32,  NOTE_G5, 32, NOTE_GS5, 32,  NOTE_A5, 16, NOTE_B5, 8
-};
-int tempo = 105;
-int notes = sizeof(melody) / sizeof(melody[0]) / 2;
-int wholenote = (60000 * 4) / tempo;
-int divider = 0, noteDuration = 0;
-
-
 
 //include local class / config files
 #include "MPU6050_conf.h"
@@ -473,7 +490,7 @@ void setup() {
 
   if (melody_active) {
     if (mp3_active) {
-      mp3_volume(20);
+      mp3_volume(16);
       mp3_play(10);
       delay(1500);
       mp3_volume(sound_vol);
@@ -488,30 +505,12 @@ void setup() {
           delay(5000);
         }
       }
-    } else {
-      if (!quick_boot) {
-        for (int i=0; i<3; i++) {
-          play_phrases();
-          delay(random(200,800));
-        }
-      }
     }
   } else if (buzz_active) {
     if (mp3_active) {
       mp3_play(1);
       if (!debug && !quick_boot) {
         delay(3000);
-      }
-    } else {
-      if (!quick_boot) {
-        for (int b = 64; b > 0; b--) {
-          tone(BUZZ, b * random(1, 48));
-          delay(random(20, 50));
-          noTone(BUZZ);
-          delay(random(5, 15));
-        }
-        noTone(BUZZ);
-        delay(500);
       }
     }
   }
@@ -680,15 +679,6 @@ void setup() {
         if (!splash_active) {
           delay(2000);
         }
-      } else {
-        for (int b = 3; b > 0; b--) {
-          tone(BUZZ, 440);
-          delay(150);
-          tone(BUZZ, 220);
-          delay(250);
-          noTone(BUZZ);
-          delay(250);
-        }
       }
       digitalWrite(LED_PIN, LOW);
     } else {
@@ -766,40 +756,30 @@ void setup() {
         }
         DFPlayer.pause();
         delay(200);
-        mp3_volume(20);
+        if (oled_active) {
+          oled_request((char*)"y");
+        }
+        mp3_volume(16);
         delay(50);
         mp3_play(11);
-        if (oled_active) {
-          oled_request((char*)"n");
-        }
         if (rgb_active) {
           rgb_request((char*)"Id");
         }
         delay(5000);
-        if (oled_active) {
-          oled_request((char*)"n");
-        }
         if (rgb_active) {
           rgb_request((char*)"Hi");
         }
-        delay(4000);
+        delay(1000);
+        if (oled_active) {
+          oled_request((char*)"n");
+        }
+        delay(3000);
       }
       mp3_play(7);
-    } else {
-      melody1();
-      delay(200);
     }
   } else if (buzz_active) {
     if (mp3_active) {
       mp3_play(7);
-    } else {
-      for (int b = 0; b < 12; b++) {
-        tone(BUZZ, (b*100));
-        delay(50);
-        noTone(BUZZ);
-        delay(25);
-      }
-      noTone(BUZZ);
     }
   }
 
@@ -860,11 +840,11 @@ void loop() {
   } else if (move_roll) {
     roll();
   } else if (move_trot) {
-    step_trot(x_dir);
+    step_trot(x_dir, y_dir, z_dir);
   } else if (move_forward) {
-    step_forward(x_dir);
+    step_forward(y_dir, x_dir, z_dir);
   } else if (move_backward) {
-    step_backward(x_dir);
+    step_backward(y_dir, x_dir, z_dir);
   } else if (move_left) {
     ramp_dist = 0.25;
     ramp_spd = 1.5;
@@ -916,6 +896,10 @@ void loop() {
     :check active state machine(s) for execution time by its respective interval
    -------------------------------------------------------
 */
+  if (moveDelayInterval && millis() - lastMoveDelayUpdate > moveDelayInterval) {
+    delay_sequences();
+  }
+
   if (nrf_active) {
     if (millis() - lastRemoteUpdate > remoteInterval) {
       remote_check();
@@ -944,10 +928,6 @@ void loop() {
 
   if (batt_active) {
     if(millis() - lastBatteryUpdate > batteryInterval) battery_check(0);
-  }
-
-  if (moveDelayInterval && millis() - lastMoveDelayUpdate > moveDelayInterval) {
-    delay_sequences();
   }
 
   if (mp3_active && mp3_status) {
@@ -1053,8 +1033,10 @@ void nrf_ack() {
     tm_data[1] = spd;
     tm_data[2] = sound_vol;
     tm_data[3] = move_steps;
-    tm_data[4] = (step_weight_factor * 100);
-    tm_data[5] = (step_height_factor * 100);
+    tm_data[4] = (step_weight_factor_front * 100);
+    tm_data[5] = (step_weight_factor_rear * 100);
+    tm_data[6] = remote_select;
+    tm_data[7] = start_mode;
     
     if (debug8) {
       for (int i = 0; i < data_num; i++) {
@@ -1074,6 +1056,7 @@ void nrf_ack() {
    -------------------------------------------------------
 */
 void remote_check() {
+
   if (nrf_check()) {
     if (!move_demo && !move_funplay) {
 /*
@@ -1090,36 +1073,49 @@ Serial.println(sel2p);
 //  1.saber 2.r2one 3.r2two 4.siren 5.chewy 6.radar 7.mariobro 8.laugh 9.what 10.nova 11.hello
 //  12.mode1 13.mode2 14.mode3 15.mode4 16.fon 17.foff 18.sustain 19.warn 20.danger 21.critical 22.halt  
 
-      //start button by mode (remote_select)
+      //start button by mode
       if (sel2 && sel2 != sel2p) {
         if (!remote_start_stop) {
           remote_start_stop = 1;
+          if (debug1)
+            Serial.println(F("Start Pressed"));
+
           if (remote_select == 1) {
-            if (debug1)
-              Serial.println(F("Start Pressed"));
+            //march
+            start_mode = 1;
             if (mp3_active) mp3_play(25);
             if (debug1)
-              Serial.println(F("start / stop march"));
+              Serial.println(F("start march"));
             if (!move_march) {
-              if (mpu_is_active) mpu_active = 0;
               set_stop();
               y_dir = 0;
               x_dir = 0;
               z_dir = 0;
-//              move_steps = 30;
+              if (mpu_is_active) mpu_active = 0;
               move_march = 1;
               if (oled_active) {
                 oled_request((char*)"d");
               }
             }
           } else if (remote_select == 2) {
-//DEV: unused
+            //walk
+            start_mode = 2;
           } else if (remote_select == 3) {
-//DEV: unused
+            //freestyle
+            start_mode = 3;
           } else if (remote_select == 4) {
+            //trot
+            start_mode = 4;
+            move_trot = 1;
+          } else if (remote_select == 5) {
+            //follow
+            start_mode = 5;
             if (!move_follow) {
               if (debug1)
                 Serial.println(F("move follow on"));
+              spd_lock = spd;
+              spd = 3;
+              set_speed();
               move_follow = 1;
               if (mp3_active) {
                 mp3_play(23);
@@ -1131,33 +1127,34 @@ Serial.println(sel2p);
           }
         } else {
           remote_start_stop = 0;
+          start_mode = 0;
           if (debug1)
             Serial.println(F("Stop Pressed"));
-
           if (remote_select == 1) {
             if (mp3_active) mp3_play(25);
             if (move_march) {
               if (debug1)
                 Serial.println(F("stop march"));
+              move_march = 0;
               if (mpu_is_active) mpu_active = 1;
               set_stop();
               y_dir = 0;
               x_dir = 0;
               z_dir = 0;
-              move_march = 0;
               if (oled_active) {
                 oled_request((char*)"d");
               }
             }
           } else if (remote_select == 2) {
-//DEV: unused
           } else if (remote_select == 3) {
-//DEV: unused
           } else if (remote_select == 4) {
+            move_trot = 0;
+          } else if (remote_select == 5) {
             if (move_follow) {
               if (debug1)
                 Serial.println(F("move follow off"));
               move_follow = 0;
+              set_stop();
               if (mp3_active) {
                 mp3_play(24);
               }
@@ -1165,9 +1162,7 @@ Serial.println(sel2p);
               if (uss_is_active) uss_active = 1;
             }
           }
-
           set_stop_active();
-          set_home();
         }
       }
       if (sel2 != sel2p) {
@@ -1177,13 +1172,15 @@ Serial.println(sel2p);
 
       //select / set mode button
       if (sel1 && sel1 != sel1p) {
-        (remote_select < 4) ? remote_select++ : remote_select = 1;
+        (remote_select < 5) ? remote_select++ : remote_select = 1;
         if (debug1) {
           Serial.print(F("\tSelected ")); Serial.println(remote_select);
         }
-        if (rgb_active) {
-          rgb_request((char*)"MQNQ");
+        remote_start_stop = 0;
+        start_mode = 0;
+        set_stop_active();
 
+        if (rgb_active) {
           if (remote_select == 1) {
             if (mp3_active) mp3_play(12);
             rgb_request((char*)"tEn");
@@ -1196,16 +1193,10 @@ Serial.println(sel2p);
           } else if (remote_select == 4) {
             if (mp3_active) mp3_play(15);
             rgb_request((char*)"wEn");
+          } else if (remote_select == 5) {
+            if (mp3_active) mp3_play(26);
+            rgb_request((char*)"xEn");
           }
-        }
-        if (buzz_active) {
-          for (int b = remote_select; b > 0; b--) {
-            tone(BUZZ, 2000);          
-            delay(70);  
-            noTone(BUZZ);         
-            delay(70);  
-          }
-          noTone(BUZZ);         
         }
         if (oled_active) {
           if (remote_select == 1) {
@@ -1216,6 +1207,8 @@ Serial.println(sel2p);
             oled_request((char*)"i");
           } else if (remote_select == 4) {
             oled_request((char*)"j");
+          } else if (remote_select == 5) {
+            oled_request((char*)"x");
           }
         }
       }
@@ -1225,40 +1218,32 @@ Serial.println(sel2p);
 
 
       //joysticks
-      if (remote_select == 1) {
-        //gait joysticks for marching
-        y_dir = mapfloat(ly, 0, 255, y_dir_steps[1], y_dir_steps[0]);
-        x_dir = mapfloat(lx, 0, 255, x_dir_steps[1], x_dir_steps[0]);
-        z_dir = mapfloat(ry, 0, 255, z_dir_steps[1], z_dir_steps[0]);
+      if ((remote_select == 1 && start_mode == 1) || (remote_select == 4 && start_mode == 4)) {
 
-        //DEVNOTE: make this switchable via remote
-        //set move_steps to min 40 to maintain march-in-place
-//        move_steps = map(rx, 0, 255, 40, move_steps_max + (move_steps_max * 0.2));
+        //gait joysticks for stationary marching
+        y_dir = map(ry, 0, 255, y_dir_steps[1], y_dir_steps[0]);
+        x_dir = map(lx, 0, 255, x_dir_steps[1], x_dir_steps[0]);
+        z_dir = map(ly, 0, 255, z_dir_steps[1], z_dir_steps[0]);
 
-      } else if (remote_select == 2) {
+      } else if (remote_select == 2 && start_mode == 2) {
 
-        //right y joystick 
-        int mf = map(ry, 0, 255, 0, 255);
-        if (mf > 200) {
+        //gait joysticks for direction marching
+        z_dir = map(ly, 0, 255, z_dir_steps[1], z_dir_steps[0]);
+
+        //right y joystick
+        y_dir = map(ry, 0, 255, y_dir_steps[1], y_dir_steps[0]);
+        if (y_dir > 2) {
           if (!move_forward) {
             if (debug1)
               Serial.println(F("forward"));
-            set_stop();
-            if (rgb_active) {
-              rgb_request((char*)"Ff");
-            }
             if (mpu_is_active) mpu_active = 0;
             move_march = 1;
             move_forward = 1;
           }
-        } else if (mf < 55) {
+        } else if (y_dir < -2) {
           if (!move_backward) {
             if (debug1)
               Serial.println(F("backward"));
-            set_stop();
-            if (rgb_active) {
-              rgb_request((char*)"Ff");
-            }
             if (mpu_is_active) mpu_active = 0;
             move_march = 1;
             move_backward = 1;
@@ -1277,24 +1262,26 @@ Serial.println(sel2p);
           if (move_march) {
             if (mpu_is_active) mpu_active = 1;
             move_march = 0;
+            if (rgb_active) {
+              rgb_request((char*)"OtEn");
+            }
           }
+          set_stop();
         }
 
-        //right x joystick
-        int mr = map(rx, 0, 255, 0, 255);
-        if (mr > 200) {
+        //left x joystick modifier
+        x_dir = map(lx, 0, 255, x_dir_steps[1], x_dir_steps[0]);
+        if (x_dir > 2) {
           if (!move_right) {
             move_right = 1;
             if (debug1)
               Serial.println(F("move right"));
-            x_dir = map(lx, 0, 255, move_x_steps[0], move_x_steps[1]);
           }
-        } else if (mr < 55) {
+        } else if (x_dir < -2) {
           if (!move_left) {
             move_left = 1;
             if (debug1)
               Serial.println(F("move left"));
-            x_dir = map(lx, 0, 255, move_x_steps[1], move_x_steps[0]);
           }
         } else {
           if (move_right) {
@@ -1308,12 +1295,12 @@ Serial.println(sel2p);
               Serial.println(F("stop move left"));
           }
         }
-      } else if (remote_select == 3) {
+      } else if (remote_select == 3 && start_mode == 3) {
+
         //kinematics joysticks
         if (btn1) {
-//DEV: check what was here in old ps2 code
         } else {
-          move_steps_x = map(lx, 0, 255, (move_steps_max * 1.4), (move_steps_min * 1.4));
+          move_steps_x = map(lx, 0, 255, (move_steps_max / 2), (move_steps_min / 2));
           move_roll_x = 1;
           if (debug1 && move_steps_x) {
             Serial.print(F("move roll_x "));Serial.println(move_steps_x);
@@ -1356,7 +1343,7 @@ Serial.println(sel2p);
             move_yaw_x = 0;
           }
 
-          move_steps_yaw_y = map(ry, 0, 255, (move_steps_max * .8), (move_steps_min * .8));
+          move_steps_yaw_y = map(ry, 0, 255, move_steps_max, move_steps_min);
           if (move_steps_yaw_y > 2 || move_steps_yaw_y < -2) {
             move_yaw_y = 1;
             if (debug1)
@@ -1365,7 +1352,7 @@ Serial.println(sel2p);
             move_yaw_y = 0;
           }
         }  
-      } else if (remote_select == 4) {
+      } else if (remote_select == 5 && start_mode == 5) {
 //DEV: unused
       }
 
@@ -1375,7 +1362,7 @@ Serial.println(sel2p);
           fired1 = 1;
           btn1p = btn1;
           btn2p = btn2;
-          if (remote_select == 1 || remote_select == 2 || remote_select == 3 || remote_select == 4) {
+          if (remote_select == 1 || remote_select == 2 || remote_select == 3 || remote_select == 4 || remote_select == 5) {
             set_stop();
             if (debug1)
               Serial.println(F("stay"));
@@ -1386,14 +1373,6 @@ Serial.println(sel2p);
             if (oled_active) {
               oled_request((char*)"b");
             }
-            if (!activeServo[RFF] && !activeServo[LFF] && !activeServo[RRF] && !activeServo[LRF]) {
-              set_home();
-              if (debug1)
-                Serial.println(F("wake"));
-              move_loops = 3;
-              move_switch = 2;
-              move_wake = 1;
-            }
           }
       }
 
@@ -1402,12 +1381,19 @@ Serial.println(sel2p);
           fired2 = 1;
           btn3p = btn3;
           btn4p = btn4;
-          if (remote_select == 1 || remote_select == 2 || remote_select == 3 || remote_select == 4) {
+          if (remote_select == 1 || remote_select == 2 || remote_select == 3 || remote_select == 4 || remote_select == 5) {
+            set_stop();
             if (rgb_active) {
-              rgb_request((char*)"Hi");
+              rgb_request((char*)"Hg");
             }
-            //battery check
-            battery_check(1);
+            if (debug1)
+              Serial.println(F("wake"));
+            spd_lock = spd;
+            spd = 1;
+            set_speed();
+            move_loops = 3;
+            move_switch = 2;
+            move_wake = 1;
           }
       }
 
@@ -1418,32 +1404,41 @@ Serial.println(sel2p);
           if (btn1) {
             set_stop();
             if (remote_select == 1) {
+              ramp_dist = 0.33;
+              ramp_spd = 1.5;
+              use_ramp = 1;  
+            } else if (remote_select == 2) {
               if (!move_roll) {
                 move_roll = 1;
                 if (debug1)
                   Serial.println(F("move roll"));
               }
-            } else if (remote_select == 2) {
+            } else if (remote_select == 3) {
+//DEV: unused
+            } else if (remote_select == 4) {
               set_sit();
               if (rgb_active) 
                 rgb_request((char*)"Hi");
               if (debug1)
                 Serial.println(F("sit"));
-            } else if (remote_select == 3) {
-//DEV: unused
-            } else if (remote_select == 4) {
+            } else if (remote_select == 5) {
 //DEV: unused
             }
           } else {                          //btn1 released
             if (remote_select == 1) {
+              use_ramp = 0;
+            } else if (remote_select == 2) {
               if (move_roll) {
                 move_roll = 0;
                 if (debug1)
                   Serial.println(F("stop roll"));
               }
-            } else if (remote_select == 2) {
             } else if (remote_select == 3) {
+//DEV: unused
             } else if (remote_select == 4) {
+//DEV: unused
+            } else if (remote_select == 5) {
+//DEV: unused
             }
           }
         }  
@@ -1455,30 +1450,35 @@ Serial.println(sel2p);
           if (btn2) {
             set_stop();
             if (remote_select == 1) {
+            } else if (remote_select == 2) {
               if (!move_pitch) {
                 move_pitch = 1;
                 if (debug1)
                   Serial.println(F("move pitch"));
               }
-            } else if (remote_select == 2) {
-              set_kneel();
-              if (debug1)
-                Serial.println(F("kneel"));
             } else if (remote_select == 3) {
 //DEV: unused
             } else if (remote_select == 4) {
+              set_kneel();
+              if (debug1)
+                Serial.println(F("kneel"));
+            } else if (remote_select == 5) {
 //DEV: unused
             }
           } else {                          //btn2 released
             if (remote_select == 1) {
+            } else if (remote_select == 2) {
               if (move_pitch) {
                 move_pitch = 0;
                 if (debug1)
                   Serial.println(F("stop pitch"));
               }
-            } else if (remote_select == 2) {
             } else if (remote_select == 3) {
+//DEV: unused
             } else if (remote_select == 4) {
+//DEV: unused
+            } else if (remote_select == 5) {
+//DEV: unused
             }
           }
         }  
@@ -1489,32 +1489,37 @@ Serial.println(sel2p);
           if (btn3) {
             set_stop();
             if (remote_select == 1) {
+            } else if (remote_select == 2) {
               if (!move_roll_body) {
                 move_roll_body = 1;
                 if (debug1)
                   Serial.println(F("move roll body"));
               }
-            } else if (remote_select == 2) {
+            } else if (remote_select == 3) {
+//DEV: unused
+            } else if (remote_select == 4) {
               set_crouch();
               if (rgb_active)
                 rgb_request((char*)"Hh");
               if (debug1)
                 Serial.println(F("crouch"));
-            } else if (remote_select == 3) {
-//DEV: unused
-            } else if (remote_select == 4) {
+            } else if (remote_select == 5) {
 //DEV: unused
             }
           } else {                          //btn3 released
             if (remote_select == 1) {
+            } else if (remote_select == 2) {
               if (move_roll_body) {
                 move_roll_body = 0;
                 if (debug1)
                   Serial.println(F("stop roll body"));
               }
-            } else if (remote_select == 2) {
             } else if (remote_select == 3) {
+//DEV: unused
             } else if (remote_select == 4) {
+//DEV: unused
+            } else if (remote_select == 5) {
+//DEV: unused
             }
           }
         }  
@@ -1525,32 +1530,37 @@ Serial.println(sel2p);
           if (btn4) {
             set_stop();
             if (remote_select == 1) {
+            } else if (remote_select == 2) {
               if (!move_pitch_body) {
                 move_pitch_body = 1;
                 if (debug1)
                   Serial.println(F("move pitch body"));
               }
-            } else if (remote_select == 2) {
+            } else if (remote_select == 3) {
+//DEV: unused
+            } else if (remote_select == 4) {
               set_lay();
               if (rgb_active)
                 rgb_request((char*)"Kd");
               if (debug1)
                 Serial.println(F("lay"));
-            } else if (remote_select == 3) {
-//DEV: unused
-            } else if (remote_select == 4) {
+            } else if (remote_select == 5) {
 //DEV: unused
             }
           } else {                          //btn4 released
             if (remote_select == 1) {
+            } else if (remote_select == 2) {
               if (move_pitch_body) {
                 move_pitch_body = 0;
                 if (debug1)
                   Serial.println(F("stop pitch body"));
               }
-            } else if (remote_select == 2) {
             } else if (remote_select == 3) {
+//DEV: unused
             } else if (remote_select == 4) {
+//DEV: unused
+            } else if (remote_select == 5) {
+//DEV: unused
             }
           }
         }  
@@ -1560,21 +1570,22 @@ Serial.println(sel2p);
 /*  
 //DEV: these are really just test / demo moves, may not be worth keeping
 
-        //right y joystick
-        int my = map(ry, 0, 255, 0, 255);
+        //left y joystick
+        int my = map(ly, 0, 255, 0, 255);
         if (my > 200) {
           if (!move_trot) {
             set_stop();
+            step_lock = 1;
             move_trot = 1;
             if (debug1)
               Serial.println(F("move trot"));
-//p3 when it works!
-//          x_dir = map(ps2x.Analog(PSS_RX), 0, 255, move_steps_min / 4, move_steps_max / 4);
-//          if (debug2)
-//            Serial.print(F("x dir: ")); Serial.print(x_dir);
+            x_dir = map(rx, 0, 255, move_steps_min / 4, move_steps_max / 4);
+            move_steps = map(ry, 0, 255, move_steps_max / 2, move_steps_min / 2);
+            if (debug2)
+              Serial.print(F("x dir: ")); Serial.print(x_dir);
           }
-        } else if (my < 55) {
         } else {
+          set_stop();
           if (move_trot) {
             move_trot = 0;
           }
@@ -1634,59 +1645,61 @@ Serial.println(sel2p);
       }
 */  
 
-//DEV: until good pots are used, only allow operation on mode 4 stopped
 
-
-      //set step_weight_factor from pot 1
+      //set step_weight_factor_front from pot 1
       if (p1 != p1p && (p1 > (p1p + pot_threshold) || p1 < (p1p - pot_threshold))) {
         p1p = p1;
-        if (remote_select == 1 || remote_select == 2 || remote_select == 3 || remote_select == 4) {
+        if (remote_select == 1 || remote_select == 2 || remote_select == 3 || remote_select == 4 || remote_select == 5) {
           if (debug1) 
-            Serial.print(F("set swf : "));
-          step_weight_factor = mapfloat(p1, 0, 255, 1.0, 1.8);
+            Serial.print(F("set swff : "));
+          step_weight_factor_front = mapfloat(p1, 0, 255, 1.0, 1.8);
           if (debug1)
-            Serial.println(step_weight_factor);
+            Serial.println(step_weight_factor_front);
         }
       }
 
       //set speed from pot 2
-      if (p2 != p2p && (p2 > (p2p + pot_threshold) || p2 < (p2p - pot_threshold))) {
-        p2p = p2;
-        if (remote_select == 1 || remote_select == 2 || remote_select == 3 || remote_select == 4) {
-          if (debug1) 
-            Serial.print(F("set speed : "));
-          spd = map(p2, pot_min, pot_max, (min_spd * 100), (max_spd * 100)) / 100;
-          set_speed();
-          if (debug1)
-            Serial.println(spd);
+      if (!spd_lock) {
+        if (p2 != p2p && (p2 > (p2p + pot_threshold) || p2 < (p2p - pot_threshold))) {
+          p2p = p2;
+          if (remote_select == 1 || remote_select == 2 || remote_select == 3 || remote_select == 4 || remote_select == 5) {
+            if (debug1) 
+              Serial.print(F("set speed : "));
+            spd = map(p2, pot_min, pot_max, (min_spd * 100), (max_spd * 100)) / 100;
+            if (!spd) spd = 1;
+            set_speed();
+            if (debug1)
+              Serial.println(spd);
+          }
         }
       }
 
-      //set (unused) from pot 3
+      //set step_weight_factor_rear from pot 3
       if (p3 != p3p && (p3 > (p3p + pot_threshold) || p3 < (p3p - pot_threshold))) {
         p3p = p3;
-        if (remote_select == 1 || remote_select == 2 || remote_select == 3 || remote_select == 4) {
-//dev: unused
+        if (remote_select == 1 || remote_select == 2 || remote_select == 3 || remote_select == 4 || remote_select == 5) {
           if (debug1) 
-            Serial.print(F("set (unused) : "));
-          int p3t = mapfloat(p3, 0, 255, 0, 255);
+            Serial.print(F("set swfr : "));
+          step_weight_factor_rear = mapfloat(p1, 0, 255, 1.0, 1.8);
           if (debug1)
-            Serial.println(p3t);
+            Serial.println(step_weight_factor_rear);
         }
       }
 
       //set steps from pot 4
-      if (p4 != p4p && (p4 > (p4p + (pot_threshold * 3)) || p4 < (p4p - (pot_threshold * 3)))) {
-        p4p = p4;
-        if (remote_select == 1 || remote_select == 2 || remote_select == 4) {
-          move_steps = map(p4, pot_min, pot_max, move_y_steps[0], move_y_steps[1]);
-          if (debug1) {
-            Serial.print(F("move steps: ")); Serial.println(move_steps);
-          }
-        } else if (remote_select == 3) {
-          z_dir = mapfloat(p4, pot_min, pot_max, z_dir_steps[1], z_dir_steps[0]);
-          if (debug1) {
-            Serial.print(F("z_dir: ")); Serial.println(z_dir);
+      if (!step_lock) {
+        if (p4 != p4p && (p4 > (p4p + (pot_threshold * 3)) || p4 < (p4p - (pot_threshold * 3)))) {
+          p4p = p4;
+        if (remote_select == 1 || remote_select == 2 || remote_select == 4 || remote_select == 5) {
+            move_steps = map(p4, pot_min, pot_max, (z_dir_steps[0] * 2), (z_dir_steps[1] * 2));
+            if (debug1) {
+              Serial.print(F("move steps: ")); Serial.println(move_steps);
+            }
+          } else if (remote_select == 3) {
+            z_dir = mapfloat(p4, pot_min, pot_max, z_dir_steps[1], z_dir_steps[0]);
+            if (debug1) {
+              Serial.print(F("z_dir: ")); Serial.println(z_dir);
+            }
           }
         }
       }
@@ -1770,19 +1783,9 @@ void pir_check() {
               if (debug1)
                 Serial.println(F("INTRUDER ALERT!"));
             }
-//DEV: add mp3_active  
-            if (melody_active) {
-              play_phrases();
-            } else if (buzz_active) {
-              for (int b = 3; b > 0; b--) {
-                tone(BUZZ, 500);
-                delay(70);
-                noTone(BUZZ);
-                delay(70);
-              }
-              noTone(BUZZ);
-            }
-    
+
+//DEV: add mp3_active and play
+
             if (rgb_active) {
               rgb_request((char*)"Fj");
             }
@@ -2044,6 +2047,12 @@ void uss_check() {
   if (oled_active) {
     oled_request((char*)"c");
   }
+
+    if (debug7) {
+      Serial.print(F("USS LEFT: "));Serial.print(distance_l);
+      Serial.print(F("USS RIGHT: "));Serial.println(distance_r);
+    }
+
 
 
 /*
@@ -2518,6 +2527,16 @@ void set_home() {
 }
 
 void set_stop() {
+  if (spd_lock) {
+    spd = spd_lock;
+    spd_lock = 0;
+    set_speed();
+  }
+  if (step_lock) {
+    move_steps = step_lock;
+    step_lock = 0;
+  }
+
   for (int m = 0; m < TOTAL_SERVOS; m++) {
     activeServo[m] = 0;
     activeSweep[m] = 0;
@@ -2832,9 +2851,6 @@ void funplay() {
 
     if (rgb_active) {
       rgb_request((char*)"Gm");
-    }
-    if (buzz_active) {
-      play_phrases();
     }
     move_funplay = 0;
     set_stop_active();
@@ -3215,10 +3231,12 @@ void move_ky() {
 
 
 void roll_x() {
-  update_sequencer(LF, LFC, spd, (servoHome[LFC] + move_steps_x), 0, 0);
-  update_sequencer(LR, LRC, spd, (servoHome[LRC] + move_steps_x), 0, 0);
-  update_sequencer(RF, RFC, spd, (servoHome[RFC] + move_steps_x), 0, 0);
-  update_sequencer(RR, RRC, spd, (servoHome[RRC] + move_steps_x), 0, 0);
+  int csp = limit_speed((12 * spd_factor));
+
+  update_sequencer(LF, LFC, csp, (servoHome[LFC] + move_steps_x), 0, 0);
+  update_sequencer(LR, LRC, csp, (servoHome[LRC] + move_steps_x), 0, 0);
+  update_sequencer(RF, RFC, csp, (servoHome[RFC] + move_steps_x), 0, 0);
+  update_sequencer(RR, RRC, csp, (servoHome[RRC] + move_steps_x), 0, 0);
 
   move_roll_x = 0;
 
@@ -3338,7 +3356,9 @@ void yaw_y() {
 
   int ftms = tms;
   if (move_steps_yaw_y > 0) {
-    ftms = (move_steps_yaw_y * 0.6);
+    fms = (move_steps_yaw_y * 0.3);
+    tms = (move_steps_yaw_y * 0.1);
+    ftms = (move_steps_yaw_y * 0.2);
   }
 
   update_sequencer(RF, RFF, fsp, (servoHome[RFF] - fms), 0, 0);
@@ -3896,11 +3916,14 @@ void pitch_body() {
 void step_march(float xdir, float ydir, float zdir) {
 
 //DEVWORK
-//  ramp_dist = 0.2;
-//  ramp_spd = 0.3;
-//  use_ramp = 1;  
+  ramp_dist = 0.4;
+  ramp_spd = 0.6;
+  use_ramp = 0;  
 
   moving = 1;
+
+  //maintain min spd
+  if (spd > 20) spd = 20;
 
   //define move factors
   float cmfact = 0.750;
@@ -3926,13 +3949,14 @@ void step_march(float xdir, float ydir, float zdir) {
 
   //define home positions 
   //DEVNOTE: this is a bit ugly, but necessary to manipulate home/start position based on zdir
+  //         if continue to use and no better solution, create a function for it
   //
   float gaitHome[TOTAL_SERVOS];
   for (int i = 0; i < TOTAL_SERVOS; i++) {
     gaitHome[i] = servoHome[i];
   }
 
-  //apply z factors by direction, not mid-sequence
+  //pre-apply z factors by direction, not mid-sequence
   if (zdir < -1) {
     gaitHome[RFT] += abs(tz);
     gaitHome[RFF] -= abs(fz);
@@ -3961,7 +3985,7 @@ void step_march(float xdir, float ydir, float zdir) {
     gaitHome[LRC] -= cz;
   }
   
-  //calculate steps, speeds, direction, and step_weight_factor
+  //calculate steps, speeds, direction, and step_weight_factor_rear
   float servoMS[TOTAL_SERVOS][6][2];   //[servo][step1,step2,etc][dist,spd]
 
   //coaxes
@@ -3976,39 +4000,38 @@ void step_march(float xdir, float ydir, float zdir) {
   //calc movement and apply weight factor by direction / load shift
   if (xdir < -1) { //turn left
     servoMS[RFC][0][0] = (gaitHome[RFC] + (abs(xdir) * cmfact));
-    servoMS[RRC][0][0] = (gaitHome[RRC] + ((abs(xdir) * cmfact) + ((abs(xdir) * cmfact) * (step_weight_factor * cmfact)))); //add weight factor
+    servoMS[RRC][0][0] = (gaitHome[RRC] + ((abs(xdir) * cmfact) + ((abs(xdir) * cmfact) * (step_weight_factor_rear * cmfact)))); //add weight factor
     servoMS[LFC][0][0] = (gaitHome[LFC] + (abs(xdir) * cmfact));
-    servoMS[LRC][0][0] = (gaitHome[LRC] + ((abs(xdir) * cmfact) + ((abs(xdir) * cmfact) * (step_weight_factor * cmfact)))); //add weight factor
+    servoMS[LRC][0][0] = (gaitHome[LRC] + ((abs(xdir) * cmfact) + ((abs(xdir) * cmfact) * (step_weight_factor_rear * cmfact)))); //add weight factor
 
     servoMS[RFC][0][1] = servoMS[LFC][0][1] = (csfact * spd_factor);
-    servoMS[RRC][0][1] = servoMS[LRC][0][1] = ((csfact - (step_weight_factor * csfact)) * spd_factor);
+    servoMS[RRC][0][1] = servoMS[LRC][0][1] = ((csfact - (step_weight_factor_rear * csfact)) * spd_factor);
   } else if (xdir > 1) { //turn right
     servoMS[RFC][0][0] = (gaitHome[RFC] - (xdir * cmfact));
-    servoMS[RRC][0][0] = (gaitHome[RRC] - ((xdir * cmfact) + ((xdir * cmfact) * (step_weight_factor * cmfact)))); //add weight factor
+    servoMS[RRC][0][0] = (gaitHome[RRC] - ((xdir * cmfact) + ((xdir * cmfact) * (step_weight_factor_rear * cmfact)))); //add weight factor
     servoMS[LFC][0][0] = (gaitHome[LFC] - (xdir * cmfact));
-    servoMS[LRC][0][0] = (gaitHome[LRC] - ((xdir * cmfact) + ((xdir * cmfact) * (step_weight_factor * cmfact)))); //add weight factor
+    servoMS[LRC][0][0] = (gaitHome[LRC] - ((xdir * cmfact) + ((xdir * cmfact) * (step_weight_factor_rear * cmfact)))); //add weight factor
 
     servoMS[RFC][0][1] = servoMS[LFC][0][1] = (csfact * spd_factor);
-    servoMS[RRC][0][1] = servoMS[LRC][0][1] = ((csfact * spd_factor) - (csfact * (step_weight_factor-1)));
+    servoMS[RRC][0][1] = servoMS[LRC][0][1] = ((csfact * spd_factor) - (csfact * (step_weight_factor_rear-1)));
   }
 
-
   //femurs
-  //set default marching steps/speed and step_weight_factor
+  //set default marching steps/speed and step_weight_factor_rear
   servoMS[RFF][0][0] = (gaitHome[RFF] - (move_steps * fmfact));
-  servoMS[RRF][0][0] = (gaitHome[RRF] - ((move_steps * fmfact) * step_weight_factor));
+  servoMS[RRF][0][0] = (gaitHome[RRF] - ((move_steps * fmfact) * step_weight_factor_rear));
   servoMS[LFF][0][0] = (gaitHome[LFF] + (move_steps * fmfact));
-  servoMS[LRF][0][0] = (gaitHome[LRF] + ((move_steps * fmfact) * step_weight_factor));
+  servoMS[LRF][0][0] = (gaitHome[LRF] + ((move_steps * fmfact) * step_weight_factor_rear));
   servoMS[RFF][0][1] = servoMS[LFF][0][1] = (fsfact * spd_factor);
-  servoMS[RRF][0][1] = servoMS[LRF][0][1] = ((fsfact * spd_factor) - (fsfact * (step_weight_factor - 1)));
+  servoMS[RRF][0][1] = servoMS[LRF][0][1] = ((fsfact * spd_factor) - (fsfact * (step_weight_factor_rear - 1)));
   servoMS[RFF][1][1] = servoMS[LFF][1][1] = servoMS[RRF][1][1] = servoMS[LRF][1][1] = ((fsfact * spd_factor) / sfact_div);
 
-  //adjust step_weight_factor on direction
+  //adjust step_weight_factor_rear on direction
   if (ydir < -1) { //reverse
-    servoMS[RFF][0][0] = (gaitHome[RFF] - ((move_steps * fmfact) * step_weight_factor));
-    servoMS[RRF][0][0] = (gaitHome[RRF] - (move_steps * fmfact));
-    servoMS[LFF][0][0] = (gaitHome[LFF] + ((move_steps * fmfact) * step_weight_factor));
-    servoMS[LRF][0][0] = (gaitHome[LRF] + (move_steps * fmfact));
+    servoMS[RFF][0][0] = (gaitHome[RFF] - (move_steps * fmfact));
+    servoMS[RRF][0][0] = (gaitHome[RRF] - ((move_steps * fmfact) * step_weight_factor_rear));
+    servoMS[LFF][0][0] = (gaitHome[LFF] + (move_steps * fmfact));
+    servoMS[LRF][0][0] = (gaitHome[LRF] + ((move_steps * fmfact) * step_weight_factor_rear));
     servoMS[RRF][0][1] = servoMS[LRF][0][1] = (fsfact * spd_factor);
   } else if (ydir > 1) { //forward
     servoMS[RRF][0][0] = (gaitHome[RRF] - (move_steps * fmfact));
@@ -4026,16 +4049,16 @@ void step_march(float xdir, float ydir, float zdir) {
   }
   //set default marching steps/speed
   servoMS[RFT][0][0] = (gaitHome[RFT] + (move_steps * tmfact));
-  servoMS[RRT][0][0] = (gaitHome[RRT] + ((move_steps * tmfact) * step_weight_factor));
+  servoMS[RRT][0][0] = (gaitHome[RRT] + ((move_steps * tmfact) * step_weight_factor_rear));
   servoMS[LFT][0][0] = (gaitHome[LFT] - (move_steps * tmfact));
-  servoMS[LRT][0][0] = (gaitHome[LRT] - ((move_steps * tmfact) * step_weight_factor));
+  servoMS[LRT][0][0] = (gaitHome[LRT] - ((move_steps * tmfact) * step_weight_factor_rear));
   servoMS[RFT][0][1] = servoMS[RRT][0][1] = servoMS[LFT][0][1] = servoMS[LRT][0][1] = (tsfact * spd_factor);
   servoMS[RFT][1][1] = servoMS[RRT][1][1] = servoMS[LFT][1][1] = servoMS[LRT][1][1] = ((tsfact * spd_factor) / sfact_div);
 
 
   //STEP SEQUENCING
   //to start sequencer, step first paired legs upwards (SEQ1)
-  if (!activeServo[RFC] && !activeServo[RFF] && !activeServo[RFT] && !servoSequence[RF]) {
+  if (!activeServo[RFF] && !activeServo[RFT] && !servoSequence[RF]) {
     //SEQ1 RF
     update_sequencer(RF, RFT, servoMS[RFT][0][1], servoMS[RFT][0][0], (servoSequence[RF] + 1), 0);
     update_sequencer(RF, RFF, servoMS[RFF][0][1], servoMS[RFF][0][0], servoSequence[RF], 0);
@@ -4048,7 +4071,7 @@ void step_march(float xdir, float ydir, float zdir) {
   }
 
   //when first paired complete, step second paired legs upwards (SEQ1), and first paired legs downwards (SEQ2)
-  if (!activeServo[RFC] && !activeServo[RFF] && !activeServo[RFT] && servoSequence[RF] == 1) {
+  if (!activeServo[RFF] && !activeServo[RFT] && servoSequence[RF] == 1) {
     //SEQ1 RR
     update_sequencer(RR, RRT, servoMS[RRT][0][1], servoMS[RRT][0][0], (servoSequence[RR] + 1), 0);
     update_sequencer(RR, RRF, servoMS[RRF][0][1], servoMS[RRF][0][0], servoSequence[RR], 0);
@@ -4113,45 +4136,85 @@ if (test_loops != 0) {
 }
 
 
-void step_trot(int xdir) {
-//DEVWORK
+void step_trot(int xdir, int ydir, int zdir) {
 
-//  ramp_dist = 0.3;
-//  ramp_spd = 1.3;
-//  use_ramp = 1;  
+  //set ramp
+  ramp_dist = 0.3;
+  ramp_spd = 1.3;
+  use_ramp = 1;    
 
-  float sinc0 = .35;
-  float sinc1 = 1.15;
+  float sinc0 = mapfloat(ydir, y_dir_steps[0], y_dir_steps[1], 0.2, 1.5);
+  float sinc1 = mapfloat(ydir, y_dir_steps[0], y_dir_steps[1], 0.7, 2.25);
 
-  float sinc2 = .35;
-  float sinc3 = 1.15;
+  float sinc2 = (sinc0 * 1.4);
+  float sinc3 = (sinc1 * 1.4);
+
+  //apply zdir
+  //define move z-factors
+  float czmfact = 0;
+  float fzmfact = 0.8;
+  float tzmfact = 1.525;
+
+  //calculate zdir positions
+  float tz = (zdir * tzmfact);
+  float fz = (zdir * fzmfact);
+  float cz = czmfact;
+
+  //define home positions 
+  //DEVNOTE: this is a bit ugly, but necessary to manipulate home/start position based on zdir
+  //         if continue to use and no better solution, create a function for it
+  //
+  float gaitHome[TOTAL_SERVOS];
+  for (int i = 0; i < TOTAL_SERVOS; i++) {
+    gaitHome[i] = servoHome[i];
+  }
+
+  //pre-apply z factors by direction, not mid-sequence
+  if (zdir < -1) {
+    gaitHome[RFT] += abs(tz);
+    gaitHome[RFF] -= abs(fz);
+    gaitHome[RFC] -= abs(cz);
+    gaitHome[RRT] += abs(tz);
+    gaitHome[RRF] -= abs(fz);
+    gaitHome[RRC] -= abs(cz);
+    gaitHome[LFT] -= abs(tz);
+    gaitHome[LFF] += abs(fz);
+    gaitHome[LFC] += abs(cz);
+    gaitHome[LRT] -= abs(tz);
+    gaitHome[LRF] += abs(fz);
+    gaitHome[LRC] += abs(cz);
+  } else if (zdir > 1) {
+    gaitHome[RFT] -= tz;
+    gaitHome[RFF] += fz;
+    gaitHome[RFC] += cz;
+    gaitHome[RRT] -= tz;
+    gaitHome[RRF] += fz;
+    gaitHome[RRC] += cz;
+    gaitHome[LFT] += tz;
+    gaitHome[LFF] -= fz;
+    gaitHome[LFC] -= cz;
+    gaitHome[LRT] += tz;
+    gaitHome[LRF] -= fz;
+    gaitHome[LRC] -= cz;
+  }
+
 
   //set coaxes by direction
-  servoStepMoves[RFC][0] = servoHome[RFC];
-  servoStepMoves[LFC][0] = servoHome[LFC];
-  servoStepMoves[RFF][0] = servoHome[RFF];
-  servoStepMoves[LFF][0] = servoHome[LFF];
+  servoStepMoves[RFC][0] = gaitHome[RFC];
+  servoStepMoves[LFC][0] = gaitHome[LFC];
+  servoStepMoves[RFF][0] = gaitHome[RFF];
+  servoStepMoves[LFF][0] = gaitHome[LFF];
   if (xdir < -1) {  //turn left
     xdir = abs(xdir);
-    servoStepMoves[RFC][0] = limit_target(RFC, (servoHome[RFC] - xdir), 15);
-    servoStepMoves[LFC][0] = limit_target(LFC, (servoHome[LFC] - (xdir * 0.6)), 20);
-    servoStepMoves[RFF][0] = limit_target(RFF, (servoHome[RFF] - (xdir * 0.6)), 0);
-    servoStepMoves[LFF][0] = limit_target(LFF, (servoHome[LFF] - (xdir * 2)), 0);
-
-    sinc0 = .25;
-    sinc1 = 1.05;
-//    sinc2 = .05;
-//    sinc3 = 1.05;
-  } else if (xdir > +1) {  //turn right
-    servoStepMoves[RFC][0] = limit_target(RFC, (servoHome[RFC] + (xdir * 0.6)), 20);
-    servoStepMoves[LFC][0] = limit_target(LFC, (servoHome[LFC] + xdir), 15);
-    servoStepMoves[RFF][0] = limit_target(RFF, (servoHome[RFF] + (xdir * 2)), 0);
-    servoStepMoves[LFF][0] = limit_target(LFF, (servoHome[LFF] + (xdir * 0.6)), 0);
-
-    sinc0 = .25;
-    sinc1 = 1.05;
-//    sinc2 = .05;
-//    sinc3 = 1.05;
+    servoStepMoves[RFC][0] = limit_target(RFC, (gaitHome[RFC] - xdir), 15);
+    servoStepMoves[LFC][0] = limit_target(LFC, (gaitHome[LFC] - (xdir * 0.6)), 20);
+    servoStepMoves[RFF][0] = limit_target(RFF, (gaitHome[RFF] - (xdir * 0.6)), 0);
+    servoStepMoves[LFF][0] = limit_target(LFF, (gaitHome[LFF] - (xdir * 2)), 0);
+   } else if (xdir > +1) {  //turn right
+    servoStepMoves[RFC][0] = limit_target(RFC, (gaitHome[RFC] + (xdir * 0.6)), 20);
+    servoStepMoves[LFC][0] = limit_target(LFC, (gaitHome[LFC] + xdir), 15);
+    servoStepMoves[RFF][0] = limit_target(RFF, (gaitHome[RFF] + (xdir * 2)), 0);
+    servoStepMoves[LFF][0] = limit_target(LFF, (gaitHome[LFF] + (xdir * 0.6)), 0);
   }
 
   //set tibia sweep movements
@@ -4162,32 +4225,32 @@ void step_trot(int xdir) {
     update_sequencer(RF, RFF, limit_speed((7 * spd_factor)), servoStepMoves[RFF][0], 0, 0);
     
     servoSpeed[LFT] = limit_speed((7 * spd_factor));
-    servoSweep[LFT][0] = limit_target(LFT, (servoHome[LFT] - (move_steps * sinc0)), 0);
-    servoSweep[LFT][1] = limit_target(LFT, (servoHome[LFT] + (move_steps * sinc1)), 0);
+    servoSweep[LFT][0] = limit_target(LFT, (gaitHome[LFT] - (move_steps * sinc0)), 0);
+    servoSweep[LFT][1] = limit_target(LFT, (gaitHome[LFT] + (move_steps * sinc1)), 0);
     servoSweep[LFT][2] = 0;
     servoSweep[LFT][3] = 1;
     targetPos[LFT] = servoSweep[LFT][1];
     activeSweep[LFT] = 1;
 
     servoSpeed[RFT] = limit_speed((7 * spd_factor));
-    servoSweep[RFT][0] = limit_target(RFT, (servoHome[RFT] + (move_steps * sinc0)), 0);
-    servoSweep[RFT][1] = limit_target(RFT, (servoHome[RFT] - (move_steps * sinc1)), 0);
+    servoSweep[RFT][0] = limit_target(RFT, (gaitHome[RFT] + (move_steps * sinc0)), 0);
+    servoSweep[RFT][1] = limit_target(RFT, (gaitHome[RFT] - (move_steps * sinc1)), 0);
     servoSweep[RFT][2] = 0;
     servoSweep[RFT][3] = 1;
     targetPos[RFT] = servoSweep[RFT][1];
     activeSweep[RFT] = 1;
 
     servoSpeed[LRT] = limit_speed((7 * spd_factor));
-    servoSweep[LRT][0] = limit_target(LRT, (servoHome[LRT] + (move_steps * sinc2)), 0);
-    servoSweep[LRT][1] = limit_target(LRT, (servoHome[LRT] - (move_steps * sinc3)), 0);
+    servoSweep[LRT][0] = limit_target(LRT, (gaitHome[LRT] + (move_steps * sinc2)), 0);
+    servoSweep[LRT][1] = limit_target(LRT, (gaitHome[LRT] - (move_steps * sinc3)), 0);
     servoSweep[LRT][2] = 0;
     servoSweep[LRT][3] = 1;
     targetPos[LRT] = servoSweep[LRT][1];
     activeSweep[LRT] = 1;
 
     servoSpeed[RRT] = limit_speed((7 * spd_factor));
-    servoSweep[RRT][0] = limit_target(RRT, (servoHome[RRT] - (move_steps * sinc2)), 0);
-    servoSweep[RRT][1] = limit_target(RRT, (servoHome[RRT] + (move_steps * sinc3)), 0);
+    servoSweep[RRT][0] = limit_target(RRT, (gaitHome[RRT] - (move_steps * sinc2)), 0);
+    servoSweep[RRT][1] = limit_target(RRT, (gaitHome[RRT] + (move_steps * sinc3)), 0);
     servoSweep[RRT][2] = 0;
     servoSweep[RRT][3] = 1;
     targetPos[RRT] = servoSweep[RRT][1];
@@ -4204,122 +4267,333 @@ void step_trot(int xdir) {
   }
 }
 
-void step_forward(int xdir) {
-//  int lturn = 0;
-  int rturn = 0;
-  int lfsf = 0;
-  int ltsf = 0;
-  int rfsf = 0;
-  int rtsf = 0;
-  if (xdir < 0) {  //turn left
-//    lturn = 10;
-    rfsf = spd_factor * 0.25;
-    rtsf = spd_factor * 0.5;
-  } else if (xdir > 0) {  //turn right
-    rturn = 10;
-    lfsf = spd_factor * 0.25;
-    ltsf = spd_factor * 0.5;
-  }
+void step_forward(int ydir, int xdir, int zdir) {
 
-  int s1c = 0;
-  int s1f = 15;
-  int s1t = 35;
+  ydir = map(ydir, 1, y_dir_steps[1], (y_dir_steps[1] * 1.5), 5);  
 
-  int s2c = 0;
-  int s2f = 20 + move_steps;
-  int s2t = 15 + move_steps;
+  int sc = (xdir / 3);
+  int s1f = (ydir * 1.0);
+  int s1t = (ydir * 2.5);
 
-  int s3c = 0;
-  int s3f = 30 + move_steps;
-  int s3t = 10 + move_steps;
+  int s2f = (ydir * 1.5);
+  int s2t = (ydir * 1.0);
 
-  int s4c = 0;
+  int s3f = (ydir * 2.5);
+  int s3t = (ydir * 1.5);
+
   int s4f = 0;
   int s4t = 0;
 
+
+  //apply zdir
+  //define move z-factors
+  float czmfact = 0;
+  float fzmfact = 0.8;
+  float tzmfact = 1.525;
+
+  //calculate zdir positions
+  float tz = (zdir * tzmfact);
+  float fz = (zdir * fzmfact);
+  float cz = czmfact;
+
+  //define home positions 
+  //DEVNOTE: this is a bit ugly, but necessary to manipulate home/start position based on zdir
+  //         if continue to use and no better solution, create a function for it
+  //
+  float gaitHome[TOTAL_SERVOS];
+  for (int i = 0; i < TOTAL_SERVOS; i++) {
+    gaitHome[i] = servoHome[i];
+  }
+
+  //pre-apply z factors by direction, not mid-sequence
+  if (zdir < -1) {
+    gaitHome[RFT] += abs(tz);
+    gaitHome[RFF] -= abs(fz);
+    gaitHome[RFC] -= abs(cz);
+    gaitHome[RRT] += abs(tz);
+    gaitHome[RRF] -= abs(fz);
+    gaitHome[RRC] -= abs(cz);
+    gaitHome[LFT] -= abs(tz);
+    gaitHome[LFF] += abs(fz);
+    gaitHome[LFC] += abs(cz);
+    gaitHome[LRT] -= abs(tz);
+    gaitHome[LRF] += abs(fz);
+    gaitHome[LRC] += abs(cz);
+  } else if (zdir > 1) {
+    gaitHome[RFT] -= tz;
+    gaitHome[RFF] += fz;
+    gaitHome[RFC] += cz;
+    gaitHome[RRT] -= tz;
+    gaitHome[RRF] += fz;
+    gaitHome[RRC] += cz;
+    gaitHome[LFT] += tz;
+    gaitHome[LFF] -= fz;
+    gaitHome[LFC] -= cz;
+    gaitHome[LRT] += tz;
+    gaitHome[LRF] -= fz;
+    gaitHome[LRC] -= cz;
+  }
+
+
+  //set left or right turn
+  int rfturn = (servoHome[RFC] + sc);
+  int lfturn = (servoHome[LFC] + sc);
+
+  int rspd = 3;
+  int lspd = 3;
+  if (xdir > 0) {
+    rspd = 0;
+    lspd = 6;
+    lfturn = (gaitHome[LFC] - (sc * 3));
+  } else if (xdir < 0) {
+    lspd = 0;
+    rspd = 6;
+    rfturn = (gaitHome[RFC] - (sc * 3));
+  }
+
+
   //RF & LR
   if (!activeServo[RFC] && !activeServo[RFF] && !activeServo[RFT] && !servoSequence[RF]) {
-    update_sequencer(RF, RFC, (0*spd_factor), (servoHome[RFC] + s1c), (servoSequence[RF] + 1), 0);
-    update_sequencer(RF, RFF, (4*spd_factor), (servoHome[RFF] - s1f), servoSequence[RF], 0);
-    update_sequencer(RF, RFT, (3*spd_factor), (servoHome[RFT] + s1t), servoSequence[RF], 0);
+    update_sequencer(RF, RFC, (rspd*spd_factor), rfturn, (servoSequence[RF] + 1), 0);
+    update_sequencer(RF, RFF, (4*spd_factor), (gaitHome[RFF] - s1f), servoSequence[RF], 0);
+    update_sequencer(RF, RFT, (3*spd_factor), (gaitHome[RFT] + s1t), servoSequence[RF], 0);
 
-    update_sequencer(LR, LRC, (0*spd_factor), (servoHome[LRC] - s1c), (servoSequence[LR] + 1), 0);
-    update_sequencer(LR, LRF, (4*spd_factor), (servoHome[LRF] + (s1f * step_weight_factor)), servoSequence[LR], 0);
-    update_sequencer(LR, LRT, (3*spd_factor), (servoHome[LRT] - (s1t * step_weight_factor)), servoSequence[LR], 0);
+    update_sequencer(LR, LRC, (3*spd_factor), (gaitHome[LRC]), (servoSequence[LR] + 1), 0);
+    update_sequencer(LR, LRF, (4*spd_factor), (gaitHome[LRF] + s1f), servoSequence[LR], 0);
+    update_sequencer(LR, LRT, (3*spd_factor), (gaitHome[LRT] - s1t), servoSequence[LR], 0);
   }
   if (!activeServo[RFC] && !activeServo[RFF] && !activeServo[RFT] && servoSequence[RF] == 1) {
-    update_sequencer(RF, RFC, (0*spd_factor), (servoHome[RFC] - s2c), (servoSequence[RF] + 1), 0);
-    update_sequencer(RF, RFF, (3*(spd_factor-rfsf)), (servoHome[RFF] + s2f - rturn), servoSequence[RF], 0);
-    update_sequencer(RF, RFT, (6*spd_factor), (servoHome[RFT] + s2t), servoSequence[RF], 0);
+    update_sequencer(RF, RFC, (rspd*spd_factor), rfturn, (servoSequence[RF] + 1), 0);
+    update_sequencer(RF, RFF, (3*spd_factor), (gaitHome[RFF] + s2f), servoSequence[RF], 0);
+    update_sequencer(RF, RFT, (6*spd_factor), (gaitHome[RFT] + s2t), servoSequence[RF], 0);
 
-    update_sequencer(LR, LRC, (0*spd_factor), (servoHome[LRC] + s2c), (servoSequence[LR] + 1), 0);
-    update_sequencer(LR, LRF, (3*spd_factor), (servoHome[LRF] - (s2f * step_weight_factor)), servoSequence[LR], 0);
-    update_sequencer(LR, LRT, (6*spd_factor), (servoHome[LRT] - (s2t * step_weight_factor)), servoSequence[LR], 0);
+    update_sequencer(LR, LRC, (3*spd_factor), (gaitHome[LRC]), (servoSequence[LR] + 1), 0);
+    update_sequencer(LR, LRF, (3*spd_factor), (gaitHome[LRF] - s2f), servoSequence[LR], 0);
+    update_sequencer(LR, LRT, (6*spd_factor), (gaitHome[LRT] - s2t), servoSequence[LR], 0);
   }
   if (!activeServo[RFC] && !activeServo[RFF] && !activeServo[RFT] && servoSequence[RF] == 2) {
-    update_sequencer(RF, RFC, (3*spd_factor), (servoHome[RFC] - s3c), (servoSequence[RF] + 1), 0);
-    update_sequencer(RF, RFF, (3*spd_factor), (servoHome[RFF] + s3f), servoSequence[RF], 0);
-    update_sequencer(RF, RFT, (3*spd_factor), (servoHome[RFT] - s3t), servoSequence[RF], 0);
+    update_sequencer(RF, RFC, (rspd*spd_factor), rfturn, (servoSequence[RF] + 1), 0);
+    update_sequencer(RF, RFF, (3*spd_factor), (gaitHome[RFF] + s3f), servoSequence[RF], 0);
+    update_sequencer(RF, RFT, (3*spd_factor), (gaitHome[RFT] - s3t), servoSequence[RF], 0);
 
-    update_sequencer(LR, LRC, (3*spd_factor), (servoHome[LRC] + s3c), (servoSequence[LR] + 1), 0);
-    update_sequencer(LR, LRF, (3*spd_factor), (servoHome[LRF] - (s3f * step_weight_factor)), servoSequence[LR], 0);
-    update_sequencer(LR, LRT, (3*spd_factor), (servoHome[LRT] + (s3t * step_weight_factor)), servoSequence[LR], 0);
+    update_sequencer(LR, LRC, (3*spd_factor), (gaitHome[LRC]), (servoSequence[LR] + 1), 0);
+    update_sequencer(LR, LRF, (3*spd_factor), (gaitHome[LRF] - s3f), servoSequence[LR], 0);
+    update_sequencer(LR, LRT, (3*spd_factor), (gaitHome[LRT] + s3t), servoSequence[LR], 0);
   }
   if (!activeServo[RFC] && !activeServo[RFF] && !activeServo[RFT] && servoSequence[RF] == 3) {
-    update_sequencer(RF, RFC, (10*spd_factor), (servoHome[RFC] - s4c), 0, 0);
-    update_sequencer(RF, RFF, (10*(spd_factor-rtsf)), (servoHome[RFF] + s4f), 0, 0);
-    update_sequencer(RF, RFT, (15*(spd_factor-rtsf)), (servoHome[RFT] - s4t), 0, 0);
+    update_sequencer(RF, RFC, (3*spd_factor), gaitHome[RFC], 0, 0);
+    update_sequencer(RF, RFF, (3*spd_factor), (gaitHome[RFF] + s4f), 0, 0);
+    update_sequencer(RF, RFT, (6*spd_factor), (gaitHome[RFT] - s4t), 0, 0);
 
-    update_sequencer(LR, LRC, (10*spd_factor), (servoHome[LRC] + s4c), 0, 0);
-    update_sequencer(LR, LRF, (10*(spd_factor-lfsf)), (servoHome[LRF] - (s4f * step_weight_factor)), 0, 0);
-    update_sequencer(LR, LRT, (15*(spd_factor-ltsf)), (servoHome[LRT] + (s4t * step_weight_factor)), 0, 0);
+    update_sequencer(LR, LRC, (3*spd_factor), gaitHome[LRC], 0, 0);
+    update_sequencer(LR, LRF, (3*spd_factor), (gaitHome[LRF] - s4f), 0, 0);
+    update_sequencer(LR, LRT, (6*spd_factor), (gaitHome[LRT] + s4t), 0, 0);
   }
 
   //LF & RR
   if (!activeServo[LFC] && !activeServo[LFF] && !activeServo[LFT] && !servoSequence[LF] && servoSequence[LR] == 3) {
-    update_sequencer(RR, RRC, (0*spd_factor), (servoHome[RRC] + s1c), (servoSequence[RR] + 1), 0);
-    update_sequencer(RR, RRF, (4*spd_factor), (servoHome[RRF] - (s1f * step_weight_factor)), servoSequence[RR], 0);
-    update_sequencer(RR, RRT, (3*spd_factor), (servoHome[RRT] + (s1t * step_weight_factor)), servoSequence[RR], 0);
+    update_sequencer(RR, RRC, (3*spd_factor), (gaitHome[RRC]), (servoSequence[RR] + 1), 0);
+    update_sequencer(RR, RRF, (4*spd_factor), (gaitHome[RRF] - s1f), servoSequence[RR], 0);
+    update_sequencer(RR, RRT, (3*spd_factor), (gaitHome[RRT] + s1t), servoSequence[RR], 0);
 
-    update_sequencer(LF, LFC, (0*spd_factor), (servoHome[LFC] - s1c), (servoSequence[LF] + 1), 0);
-    update_sequencer(LF, LFF, (4*spd_factor), (servoHome[LFF] + s1f), servoSequence[LF], 0);
-    update_sequencer(LF, LFT, (3*spd_factor), (servoHome[LFT] - s1t), servoSequence[LF], 0);
+    update_sequencer(LF, LFC, (lspd*spd_factor), lfturn, (servoSequence[LF] + 1), 0);
+    update_sequencer(LF, LFF, (4*spd_factor), (gaitHome[LFF] + s1f), servoSequence[LF], 0);
+    update_sequencer(LF, LFT, (3*spd_factor), (gaitHome[LFT] - s1t), servoSequence[LF], 0);
   }
   if (!activeServo[LFC] && !activeServo[LFF] && !activeServo[LFT] && servoSequence[LF] == 1) {
-    update_sequencer(RR, RRC, (0*spd_factor), (servoHome[RRC] - s2c), (servoSequence[RR] + 1), 0);
-    update_sequencer(RR, RRF, (3*(spd_factor-rfsf)), (servoHome[RRF] + (s2f * step_weight_factor) - rturn), servoSequence[RR], 0);
-    update_sequencer(RR, RRT, (6*spd_factor), (servoHome[RRT] + (s2t * step_weight_factor)), servoSequence[RR], 0);
+    update_sequencer(RR, RRC, (3*spd_factor), (gaitHome[RRC]), (servoSequence[RR] + 1), 0);
+    update_sequencer(RR, RRF, (3*spd_factor), (gaitHome[RRF] + s2f), servoSequence[RR], 0);
+    update_sequencer(RR, RRT, (6*spd_factor), (gaitHome[RRT] + s2t), servoSequence[RR], 0);
 
-    update_sequencer(LF, LFC, (0*spd_factor), (servoHome[LFC] + s2c), (servoSequence[LF] + 1), 0);
-    update_sequencer(LF, LFF, (3*spd_factor), (servoHome[LFF] - s2f), servoSequence[LF], 0);
-    update_sequencer(LF, LFT, (6*spd_factor), (servoHome[LFT] - s2t), servoSequence[LF], 0);
+    update_sequencer(LF, LFC, (lspd*spd_factor), lfturn, (servoSequence[LF] + 1), 0);
+    update_sequencer(LF, LFF, (3*spd_factor), (gaitHome[LFF] - s2f), servoSequence[LF], 0);
+    update_sequencer(LF, LFT, (6*spd_factor), (gaitHome[LFT] - s2t), servoSequence[LF], 0);
   }
   if (!activeServo[LFC] && !activeServo[LFF] && !activeServo[LFT] && servoSequence[LF] == 2) {
-    update_sequencer(RR, RRC, (3*spd_factor), (servoHome[RRC] - s3c), (servoSequence[RR] + 1), 0);
-    update_sequencer(RR, RRF, (3*spd_factor), (servoHome[RRF] + (s3f * step_weight_factor)), servoSequence[RR], 0);
-    update_sequencer(RR, RRT, (3*spd_factor), (servoHome[RRT] - (s3t * step_weight_factor)), servoSequence[RR], 0);
+    update_sequencer(RR, RRC, (3*spd_factor), (gaitHome[RRC]), (servoSequence[RR] + 1), 0);
+    update_sequencer(RR, RRF, (3*spd_factor), (gaitHome[RRF] + s3f), servoSequence[RR], 0);
+    update_sequencer(RR, RRT, (3*spd_factor), (gaitHome[RRT] - s3t), servoSequence[RR], 0);
 
-    update_sequencer(LF, LFC, (3*spd_factor), (servoHome[LFC] + s3c), (servoSequence[LF] + 1), 0);
-    update_sequencer(LF, LFF, (3*spd_factor), (servoHome[LFF] - s3f), servoSequence[LF], 0);
-    update_sequencer(LF, LFT, (3*spd_factor), (servoHome[LFT] + s3t), servoSequence[LF], 0);
+    update_sequencer(LF, LFC, (lspd*spd_factor), lfturn, (servoSequence[LF] + 1), 0);
+    update_sequencer(LF, LFF, (3*spd_factor), (gaitHome[LFF] - s3f), servoSequence[LF], 0);
+    update_sequencer(LF, LFT, (3*spd_factor), (gaitHome[LFT] + s3t), servoSequence[LF], 0);
   }
   if (!activeServo[LFC] && !activeServo[LFF] && !activeServo[LFT] && servoSequence[LF] == 3) {
-    update_sequencer(RR, RRC, (10*spd_factor), (servoHome[RRC] - s4c), 0, 0);
-    update_sequencer(RR, RRF, (10*spd_factor), (servoHome[RRF] + (s4f * step_weight_factor)), 0, 0);
-    update_sequencer(RR, RRT, (15*spd_factor), (servoHome[RRT] - (s4t * step_weight_factor)), 0, 0);
+    update_sequencer(RR, RRC, (3*spd_factor), gaitHome[RRC], 0, 0);
+    update_sequencer(RR, RRF, (3*spd_factor), (gaitHome[RRF] + s4f), 0, 0);
+    update_sequencer(RR, RRT, (6*spd_factor), (gaitHome[RRT] - s4t), 0, 0);
 
-    update_sequencer(LF, LFC, (10*spd_factor), (servoHome[LFC] + s4c), 0, 0);
-    update_sequencer(LF, LFF, (10*spd_factor), (servoHome[LFF] - s4f), 0, 0);
-    update_sequencer(LF, LFT, (15*spd_factor), (servoHome[LFT] + s4t), 0, 0);
+    update_sequencer(LF, LFC, (3*spd_factor), gaitHome[LFC], 0, 0);
+    update_sequencer(LF, LFF, (3*spd_factor), (gaitHome[LFF] - s4f), 0, 0);
+    update_sequencer(LF, LFT, (6*spd_factor), (gaitHome[LFT] + s4t), 0, 0);
 
     lastMoveDelayUpdate = millis();  
   }
 
 }
 
-void step_backward(int xdir) {
-//this is probably not needed, since backwards is just opposite of forwards
+
+void step_backward(int ydir, int xdir, int zdir) {
+
+  ydir = map(ydir, y_dir_steps[0], -1, -5, (y_dir_steps[0] * 1.5));
+
+  int sc = (xdir / 3);
+  int s1f = 15 - ydir;
+  int s1t = 35 - ydir;
+
+  int s2f = 20 - ydir;
+  int s2t = 15 - ydir;
+
+  int s3f = 30 - ydir;
+  int s3t = 10 - ydir;
+
+  int s4f = 0;
+  int s4t = 0;
+
+
+  //apply zdir
+  //define move z-factors
+  float czmfact = 0;
+  float fzmfact = 0.8;
+  float tzmfact = 1.525;
+
+  //calculate zdir positions
+  float tz = (zdir * tzmfact);
+  float fz = (zdir * fzmfact);
+  float cz = czmfact;
+
+  //define home positions 
+  //DEVNOTE: this is a bit ugly, but necessary to manipulate home/start position based on zdir
+  //         if continue to use and no better solution, create a function for it
+  //
+  float gaitHome[TOTAL_SERVOS];
+  for (int i = 0; i < TOTAL_SERVOS; i++) {
+    gaitHome[i] = servoHome[i];
+  }
+
+  //pre-apply z factors by direction, not mid-sequence
+  if (zdir < -1) {
+    gaitHome[RFT] += abs(tz);
+    gaitHome[RFF] -= abs(fz);
+    gaitHome[RFC] -= abs(cz);
+    gaitHome[RRT] += abs(tz);
+    gaitHome[RRF] -= abs(fz);
+    gaitHome[RRC] -= abs(cz);
+    gaitHome[LFT] -= abs(tz);
+    gaitHome[LFF] += abs(fz);
+    gaitHome[LFC] += abs(cz);
+    gaitHome[LRT] -= abs(tz);
+    gaitHome[LRF] += abs(fz);
+    gaitHome[LRC] += abs(cz);
+  } else if (zdir > 1) {
+    gaitHome[RFT] -= tz;
+    gaitHome[RFF] += fz;
+    gaitHome[RFC] += cz;
+    gaitHome[RRT] -= tz;
+    gaitHome[RRF] += fz;
+    gaitHome[RRC] += cz;
+    gaitHome[LFT] += tz;
+    gaitHome[LFF] -= fz;
+    gaitHome[LFC] -= cz;
+    gaitHome[LRT] += tz;
+    gaitHome[LRF] -= fz;
+    gaitHome[LRC] -= cz;
+  }
+
+  int rturn = 1;
+  int lturn = 1;
+  int rspd = 3;
+  int lspd = 3;
+  if (xdir > 0) {
+    rspd = 0;
+    lspd = 6;
+    lturn = 3;
+  } else if (xdir < 0) {
+    lspd = 0;
+    rspd = 6;
+    rturn = 3;
+  }
+
+  //RF & LR
+  if (!activeServo[RFC] && !activeServo[RFF] && !activeServo[RFT] && !servoSequence[RF]) {
+    update_sequencer(RF, RFC, (3*spd_factor), (gaitHome[RFC]), (servoSequence[RF] + 1), 0);
+    update_sequencer(RF, RFF, (4*spd_factor), (gaitHome[RFF] - s1f), servoSequence[RF], 0);
+    update_sequencer(RF, RFT, (3*spd_factor), (gaitHome[RFT] + s1t), servoSequence[RF], 0);
+
+    update_sequencer(LR, LRC, (lspd*spd_factor), (gaitHome[LRC] + (sc * rturn)), (servoSequence[LR] + 1), 0);
+    update_sequencer(LR, LRF, (4*spd_factor), (gaitHome[LRF] + s1f), servoSequence[LR], 0);
+    update_sequencer(LR, LRT, (3*spd_factor), (gaitHome[LRT] - s1t), servoSequence[LR], 0);
+  }
+  if (!activeServo[RFC] && !activeServo[RFF] && !activeServo[RFT] && servoSequence[RF] == 1) {
+    update_sequencer(RF, RFC, (3*spd_factor), (gaitHome[RFC]), (servoSequence[RF] + 1), 0);
+    update_sequencer(RF, RFF, (3*spd_factor), (gaitHome[RFF] + s2f), servoSequence[RF], 0);
+    update_sequencer(RF, RFT, (6*spd_factor), (gaitHome[RFT] + s2t), servoSequence[RF], 0);
+
+    update_sequencer(LR, LRC, (lspd*spd_factor), (gaitHome[LRC] + (sc * rturn)), (servoSequence[LR] + 1), 0);
+    update_sequencer(LR, LRF, (3*spd_factor), (gaitHome[LRF] - s2f), servoSequence[LR], 0);
+    update_sequencer(LR, LRT, (6*spd_factor), (gaitHome[LRT] - s2t), servoSequence[LR], 0);
+  }
+  if (!activeServo[RFC] && !activeServo[RFF] && !activeServo[RFT] && servoSequence[RF] == 2) {
+    update_sequencer(RF, RFC, (3*spd_factor), (gaitHome[RFC]), (servoSequence[RF] + 1), 0);
+    update_sequencer(RF, RFF, (3*spd_factor), (gaitHome[RFF] + s3f), servoSequence[RF], 0);
+    update_sequencer(RF, RFT, (3*spd_factor), (gaitHome[RFT] - s3t), servoSequence[RF], 0);
+
+    update_sequencer(LR, LRC, (lspd*spd_factor), (gaitHome[LRC] + (sc * rturn)), (servoSequence[LR] + 1), 0);
+    update_sequencer(LR, LRF, (3*spd_factor), (gaitHome[LRF] - s3f), servoSequence[LR], 0);
+    update_sequencer(LR, LRT, (3*spd_factor), (gaitHome[LRT] + s3t), servoSequence[LR], 0);
+  }
+  if (!activeServo[RFC] && !activeServo[RFF] && !activeServo[RFT] && servoSequence[RF] == 3) {
+    update_sequencer(RF, RFC, (3*spd_factor), gaitHome[RFC], 0, 0);
+    update_sequencer(RF, RFF, (10*spd_factor), (gaitHome[RFF] + s4f), 0, 0);
+    update_sequencer(RF, RFT, (15*spd_factor), (gaitHome[RFT] - s4t), 0, 0);
+
+    update_sequencer(LR, LRC, (3*spd_factor), gaitHome[LRC], 0, 0);
+    update_sequencer(LR, LRF, (10*spd_factor), (gaitHome[LRF] - s4f), 0, 0);
+    update_sequencer(LR, LRT, (15*spd_factor), (gaitHome[LRT] + s4t), 0, 0);
+  }
+
+  //LF & RR
+  if (!activeServo[LFC] && !activeServo[LFF] && !activeServo[LFT] && !servoSequence[LF] && servoSequence[LR] == 3) {
+    update_sequencer(RR, RRC, (rspd*spd_factor), (gaitHome[RRC] + (sc * lturn)), (servoSequence[RR] + 1), 0);
+    update_sequencer(RR, RRF, (4*spd_factor), (gaitHome[RRF] - s1f), servoSequence[RR], 0);
+    update_sequencer(RR, RRT, (3*spd_factor), (gaitHome[RRT] + s1t), servoSequence[RR], 0);
+
+    update_sequencer(LF, LFC, (3*spd_factor), (gaitHome[LFC]), (servoSequence[LF] + 1), 0);
+    update_sequencer(LF, LFF, (4*spd_factor), (gaitHome[LFF] + s1f), servoSequence[LF], 0);
+    update_sequencer(LF, LFT, (3*spd_factor), (gaitHome[LFT] - s1t), servoSequence[LF], 0);
+  }
+  if (!activeServo[LFC] && !activeServo[LFF] && !activeServo[LFT] && servoSequence[LF] == 1) {
+    update_sequencer(RR, RRC, (rspd*spd_factor), (gaitHome[RRC] + (sc * lturn)), (servoSequence[RR] + 1), 0);
+    update_sequencer(RR, RRF, (3*spd_factor), (gaitHome[RRF] + s2f), servoSequence[RR], 0);
+    update_sequencer(RR, RRT, (6*spd_factor), (gaitHome[RRT] + s2t), servoSequence[RR], 0);
+
+    update_sequencer(LF, LFC, (3*spd_factor), (gaitHome[LFC]), (servoSequence[LF] + 1), 0);
+    update_sequencer(LF, LFF, (3*spd_factor), (gaitHome[LFF] - s2f), servoSequence[LF], 0);
+    update_sequencer(LF, LFT, (6*spd_factor), (gaitHome[LFT] - s2t), servoSequence[LF], 0);
+  }
+  if (!activeServo[LFC] && !activeServo[LFF] && !activeServo[LFT] && servoSequence[LF] == 2) {
+    update_sequencer(RR, RRC, (rspd*spd_factor), (gaitHome[RRC] + (sc * lturn)), (servoSequence[RR] + 1), 0);
+    update_sequencer(RR, RRF, (3*spd_factor), (gaitHome[RRF] + s3f), servoSequence[RR], 0);
+    update_sequencer(RR, RRT, (3*spd_factor), (gaitHome[RRT] - s3t), servoSequence[RR], 0);
+
+    update_sequencer(LF, LFC, (3*spd_factor), (gaitHome[LFC]), (servoSequence[LF] + 1), 0);
+    update_sequencer(LF, LFF, (3*spd_factor), (gaitHome[LFF] - s3f), servoSequence[LF], 0);
+    update_sequencer(LF, LFT, (3*spd_factor), (gaitHome[LFT] + s3t), servoSequence[LF], 0);
+  }
+  if (!activeServo[LFC] && !activeServo[LFF] && !activeServo[LFT] && servoSequence[LF] == 3) {
+    update_sequencer(RR, RRC, (3*spd_factor), gaitHome[RRC], 0, 0);
+    update_sequencer(RR, RRF, (10*spd_factor), (gaitHome[RRF] + s4f), 0, 0);
+    update_sequencer(RR, RRT, (15*spd_factor), (gaitHome[RRT] - s4t), 0, 0);
+
+    update_sequencer(LF, LFC, (3*spd_factor), gaitHome[LFC], 0, 0);
+    update_sequencer(LF, LFF, (10*spd_factor), (gaitHome[LFF] - s4f), 0, 0);
+    update_sequencer(LF, LFT, (15*spd_factor), (gaitHome[LFT] + s4t), 0, 0);
+
+    lastMoveDelayUpdate = millis();  
+  }
+
 }
+
 
 void step_left_right(int lorr, int xdir, int ydir) {   //where x is +right/-left, and y is +forward/-backward
   spd = 12;  //1-10 (scale with move steps)
@@ -4563,7 +4837,7 @@ void wake() {
     if (!activeServo[LRC] && !activeServo[LRF] && !activeServo[LRT] && !servoSequence[LR] && !activeServo[RFC] && !activeServo[RFF] && !activeServo[RFT] && servoSequence[RF] == 2) {
       update_sequencer(LR, LRC, 1, (servoPos[LRC] + servoStepMoves[LRC][0]), (servoSequence[LR] + 1), 0);
       update_sequencer(LR, LRF, 1, (servoHome[LRF] + servoStepMoves[LRF][0]), servoSequence[LR], 0);
-      update_sequencer(LR, LRT, 1, ((servoHome[LRT] - servoStepMoves[LRT][0]) - (servoStepMoves[LRT][0]*step_weight_factor)), servoSequence[LR], 0);
+      update_sequencer(LR, LRT, 1, ((servoHome[LRT] - servoStepMoves[LRT][0]) - (servoStepMoves[LRT][0]*step_weight_factor_rear)), servoSequence[LR], 0);
     }
     if (!activeServo[LRC] && !activeServo[LRF] && !activeServo[LRT] && servoSequence[LR] == 1) {
       update_sequencer(LR, LRC, 1, servoPos[LRC], (servoSequence[LR] + 1), 0);
@@ -4587,7 +4861,7 @@ void wake() {
     if (!activeServo[RRC] && !activeServo[RRF] && !activeServo[RRT] && !servoSequence[RR] && !activeServo[LFC] && !activeServo[LFF] && !activeServo[LFT] && servoSequence[LF] == 2) {
       update_sequencer(RR, RRC, 1, (servoPos[RRC] - servoStepMoves[RRC][0]), (servoSequence[RR] + 1), 0);
       update_sequencer(RR, RRF, 1, (servoHome[RRF] - servoStepMoves[RRF][0]), servoSequence[RR], 0);
-      update_sequencer(RR, RRT, 1, ((servoHome[RRT] + servoStepMoves[RRT][0]) + (servoStepMoves[RRT][0]*step_weight_factor)), servoSequence[RR], 0);
+      update_sequencer(RR, RRT, 1, ((servoHome[RRT] + servoStepMoves[RRT][0]) + (servoStepMoves[RRT][0]*step_weight_factor_rear)), servoSequence[RR], 0);
     }
     if (!activeServo[RRC] && !activeServo[RRF] && !activeServo[RRT] && servoSequence[RR] == 1) {
       update_sequencer(RR, RRC, 1, servoPos[RRC], (servoSequence[RR] + 1), 0);
@@ -4607,7 +4881,8 @@ void wake() {
     move_loops = 9;
     move_switch = 2;
   } else if (!activeServo[RRC] && !activeServo[RRF] && !activeServo[RRT] && !servoSequence[RR]) {
-    spd = default_spd;
+    spd = spd_lock;
+    spd_lock = 0;
     set_speed();
     move_wake = 0;
   }
@@ -5313,7 +5588,7 @@ void serial_command(String cmd) {
           Serial.print(F("\tx_dir:\t\t\t"));Serial.println(x_dir);
           Serial.print(F("\ty_dir:\t\t\t"));Serial.println(y_dir);
           Serial.print(F("\tz_dir:\t\t\t"));Serial.println(z_dir);
-          Serial.print(F("\tstep_weight_factor:\t"));Serial.println(step_weight_factor);
+          Serial.print(F("\tstep_weight_factor_rear:\t"));Serial.println(step_weight_factor_rear);
           Serial.print(F("\tstep_height_factor:\t"));Serial.println(step_height_factor);
           Serial.print(F("\tdebug_servo:\t\t"));Serial.println(debug_servo);
           Serial.print(F("\tdebug_leg:\t\t"));Serial.println(debug_leg);
@@ -5505,15 +5780,17 @@ void serial_command(String cmd) {
         x_dir = 0;
         z_dir = 0;
         move_steps = 25;
+        move_forward = 1;
         move_march = 1;
       } else if (cmd == "back" || cmd == "b") {
         if (!plotter) Serial.println(F("march_backward"));
-        spd = 5;
+        spd = 7;
         set_speed();
         y_dir = -10;
         x_dir = 0;
         z_dir = 0;
-        move_steps = 30;
+        move_steps = 25;
+        move_backward = 1;
         move_march = 1;
       } else if (cmd == "sit") {
         if (!plotter) Serial.println(F("sit"));
@@ -5999,14 +6276,6 @@ void powering_down(void) {
     mp3_play(22);
     delay(2500);
     mp3_play(5);
-  } else if (buzz_active) {
-    for (int b = 12; b > 0; b--) {
-      tone(BUZZ, random(1, 12) * 100);
-      delay(50);
-      noTone(BUZZ);
-      delay(25);
-    }
-    noTone(BUZZ);
   }
 
   set_stop_active();
@@ -6022,74 +6291,6 @@ void powering_down(void) {
 }
 
 
-
-/*
-   -------------------------------------------------------
-   TONES 
-   -------------------------------------------------------
-*/
-void play_phrases() {
-    int K = 2000;
-    switch (random(1,9)) {
-        case 1:phrase1(); phrase2(); break;
-        case 2:phrase2(); phrase1(); break;
-        case 3:phrase1(); phrase2(); phrase1(); break;
-        case 4:phrase2(); phrase1(); phrase2(); break;
-        case 5:phrase1(); phrase2(); phrase1(); phrase2(); break;
-        case 6:phrase2(); phrase1(); phrase2(); phrase1(); break;
-        case 7:phrase1(); phrase2(); phrase1(); phrase2(); phrase1(); break;
-        case 8:phrase2(); phrase1(); phrase2(); phrase1(); phrase2(); break;
-    }
-    for (int i = 0; i <= random(3, 12); i++){
-        tone(BUZZ, K + random(-1800, 2000));          
-        delay(random(70, 170));  
-        noTone(BUZZ);         
-        delay(random(0, 30));             
-    } 
-    noTone(BUZZ);  
-}
-
-void phrase1() {    
-    int k = random(1000,2000);
-    for (int i = 0; i <=  random(100,2000); i++){
-        tone(BUZZ, k+(-i*2));          
-        delay(random(.9,2));             
-    } 
-    for (int i = 0; i <= random(100,1000); i++){
-        tone(BUZZ, k + (i * 10));          
-        delay(random(.9,2));             
-    } 
-}
-
-void phrase2() {
-    int k = random(1000,2000);
-    for (int i = 0; i <= random(100,2000); i++){
-        tone(BUZZ, k+(i*2));          
-        delay(random(.9,2));             
-    } 
-    for (int i = 0; i <= random(100,1000); i++){
-        tone(BUZZ, k + (-i * 10));          
-        delay(random(.9,2));             
-    } 
-}
-
-void melody1() {
-  for (int thisNote = 0; thisNote < notes * 2; thisNote = thisNote + 2) {
-    divider = melody[thisNote + 1];
-    if (divider > 0) {
-      noteDuration = (wholenote) / divider;
-    } else if (divider < 0) {
-      noteDuration = (wholenote) / abs(divider);
-      noteDuration *= 1.5;
-    }
-
-    tone(BUZZ, melody[thisNote], noteDuration * 0.9);
-
-    delay(noteDuration);
-
-    noTone(BUZZ);
-  }
-}
 
 //MP3 Setup
 //DFPlayer Mini Pro
@@ -6123,6 +6324,8 @@ void mp3_play(int track) {
       case 23: DFPlayer.playSpecFile("/MP3/0023.mp3"); break;
       case 24: DFPlayer.playSpecFile("/MP3/0024.mp3"); break;
       case 25: DFPlayer.playSpecFile("/MP3/0025.mp3"); break;
+      case 26: DFPlayer.playSpecFile("/MP3/0026.mp3"); break;
+      case 27: DFPlayer.playSpecFile("/MP3/0027.mp3"); break;
     }
 }
 
@@ -6145,13 +6348,26 @@ void mp3_volume(int vol) {
   if (vol < 0) {
     svol = analogRead(MP3_VOL_PIN);
     if (svol < vpot_max) {
-      sound_vol = map(analogRead(MP3_VOL_PIN), vpot_min, vpot_max, vol_max, vol_min);  
+      if (vpot_loop == vpot_cnt) {
+        sound_vol = map((vpot_avg / vpot_loop), vpot_min, vpot_max, vol_max, vol_min);
+        vpot_avg = 0;
+        vpot_cnt = 0;
+      } else if (vpot_loop) {
+        vpot_avg += svol;
+        vpot_cnt++;        
+        svol = 0;
+      } else {
+        sound_vol = map(svol, vpot_min, vpot_max, vol_max, vol_min);
+      }
     }
+
+    lastPotUpdate = millis();
   } else {
+    svol = vol;
     sound_vol = vol;
   }
 
-  if (sound_vol > (sound_volp + 1) || sound_vol < (sound_volp - 1)) {
+  if (svol && sound_vol != sound_volp) {
     sound_volp = sound_vol;
 
     //MP3 Setup
@@ -6160,7 +6376,7 @@ void mp3_volume(int vol) {
     //DFPlayer Mini
     //DFPlayer.volume(sound_vol);
     if (debug1) {
-      Serial.print(" set vol: ");
+      Serial.print("set vol: ");
       Serial.println(sound_vol);
     }
   }

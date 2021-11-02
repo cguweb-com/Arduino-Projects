@@ -1,10 +1,46 @@
-
 /*
- * Nova Remote
  * 
- * - finish NRF communication protocol for sending and receiving data
- * 
- */
+ *   NovaSM3 Remote - a Spot-Mini Micro clone Remote Control
+ *   Version: 5.2
+ *   Version Date: 2021-10-26
+ *   
+ *   Author:  Chris Locke - cguweb@gmail.com
+ *   Nova's website:  https://novaspotmicro.com
+ *   GitHub Project:  https://github.com/cguweb-com/Arduino-Projects/tree/main/Nova-SM3
+ *   YouTube Playlist:  https://www.youtube.com/watch?v=00PkTcGWPvo&list=PLcOZNHwM_I2a3YZKf8FtUjJneKGXCfduk
+ *   
+ *   RELEASE NOTES:
+ *
+ *   DEV NOTES:
+ *     
+ *   =============================================================
+ *     
+ *   Copyright (c) 2020-2021 Christopher M. Locke and others
+ *   Distributed under the terms of the MIT License. 
+ *   SPDX-License-Identifier: MIT
+ *   
+ *   Permission is hereby granted, free of charge, to any person obtaining
+ *   a copy of this software and associated documentation files (the
+ *   "Software"), to deal in the Software without restriction, including
+ *   without limitation the rights to use, copy, modify, merge, publish,
+ *   distribute, sublicense, and/or sell copies of the Software, and to
+ *   permit persons to whom the Software is furnished to do so, subject to
+ *   the following conditions:
+ *   
+ *   The above copyright notice and this permission notice shall be
+ *   included in all copies or substantial portions of the Software.
+ *   
+ *   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+ *   EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+ *   MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+ *   NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
+ *   LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+ *   OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+ *   WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+ *   
+ *      
+*/
+
 
 float VERSION = 5.2;
 
@@ -17,6 +53,7 @@ int plotter = 0;                  //control to plotter (also set debug3 = 1)
 
 byte nrf_active = 1;
 byte batt_active = 1;             //activate battery level monitoring
+byte activity_active = 1;         //activate inactivity monitor / sleep mode
 
 #include <SPI.h>
 #include <RF24.h>
@@ -51,10 +88,11 @@ uint8_t tm_data[data_num] = {     //transmit data array
 
 //DEV: for currently unused two-way communication
 uint8_t rc_data[data_num] = {     //receive data array
-  0, 0, 0, 0, 0, 0, 0,
-  0, 0, 0, 0, 0, 0, 0
+  0, 0, 0,                        //battery, spd, volume
+  0, 0, 0,                        //move_steps, step_weight_factor_front, step_weight_factor_rear
+  1, 0, 0, 0,                     //remote_select, start_mode
+  0, 0, 0, 0                      //
 };
-
 
 //slide pots (4)
 #define POT1_PIN A8
@@ -78,7 +116,7 @@ int p3 = 0;
 int p3p = 0;
 int p4 = 0;
 int p4p = 0;
-int pot_slack = 20;
+int pot_slack = 10;
 int pot_min = 0;        //if pots are orientated opposing to this configuration, 
 int pot_max = 255;      //swap these two values where min would be max value, and vice-versa
 
@@ -165,7 +203,7 @@ unsigned long lastOLED2Update = 0;
 
 //battery monitor
 #define BATT_MONITOR A3
-unsigned long batteryInterval = 30000;             //30 seconds
+unsigned long batteryInterval = 60000;             //60 seconds
 unsigned long lastBatteryUpdate = 0;
 int batt_cnt = 0;
 float batt_voltage = 7.4;                          //approx fully charged battery minimum nominal voltage
@@ -173,13 +211,19 @@ float batt_voltage_prev = 7.4;                     //comparison voltage to preve
 float batt_voltage2 = 11.4;                        //approx fully charged Nova battery minimum nominal voltage
 float batt_voltage_prev2 = 11.4;                   //comparison voltage to prevent false positives
 float avg_volts = 0;
-float batt_levels[10] = {                           //voltage drop alarm levels(10)
+float batt_levels[10] = {                          //voltage drop alarm levels(10)
    7.3, 7.1, 6.9, 6.7
 };
 
 //misc vars
 unsigned int controlsInterval = 10;
 unsigned long controlsUpdate = 0;
+
+byte inactivity_set = 1;
+int inactivity_loop = 5;
+int inactivity_cnt = 0;
+unsigned int inactivityInterval = 3000;
+unsigned long inactivityUpdate = 0;
 
 
 //spotmicro bmp for oled
@@ -255,7 +299,6 @@ const unsigned char smbmp [] PROGMEM = {
 //function prototypes
 void fade(int redStartValue, int redEndValue, int greenStartValue, int greenEndValue, int blueStartValue, int blueEndValue, int totalSteps, int fadeBack, int rgbNum = 99);
 void blink_rgb_num(int rgb_val[3], int rgb_val2[3], int rgbNum=99);
-void(* reset_func) (void) = 0;
 
 
 void setup() {
@@ -390,14 +433,14 @@ void loop() {
   }
 
   if (nrf_active && (millis() - lastNRFUpdate > nrfInterval)) tm_resp = nrf_check();
+
   if (millis() - lastRGBUpdate > rgbInterval) rgb_check(pattern);
   if (millis() - lastOLEDUpdate > oledInterval) oled_refresh();
   if (millis() - lastOLED2Update > oled2Interval) oled2_refresh();
-  if (millis() - lastDisplayUpdate > displayInterval) update_display(0);
+  if (millis() - lastDisplayUpdate > displayInterval) update_display(2);
 
-  if (batt_active) {
-    if (millis() - lastBatteryUpdate > batteryInterval) battery_check(0); 
-  }
+  if (batt_active && (millis() - lastBatteryUpdate > batteryInterval)) battery_check(0); 
+  if (activity_active && millis() - inactivityUpdate > inactivityInterval) inactivity_check(); 
 
   if (debug3) {
 
@@ -480,6 +523,31 @@ bool nrf_check() {
 }
 
 
+void inactivity_check() {
+  if (inactivity_set) {
+    inactivity_cnt++;
+    if (debug) {
+      Serial.print(F("icnt: "));
+      Serial.println(inactivity_cnt);
+    }
+
+    //put into sleep mode
+    if (inactivity_cnt == inactivity_loop) {
+      if (debug) {
+        Serial.println(F("update display"));
+      }
+      update_display(4);
+    } else if (inactivity_cnt == (inactivity_loop * 2)) {
+      inactivity_cnt = 0;
+      display.clearDisplay();
+      display2.clearDisplay();
+    }
+  } else {
+    inactivity_cnt = 0;
+  }
+  inactivity_set = 1;
+  inactivityUpdate = millis();
+}
 
 /*
 
@@ -529,10 +597,12 @@ void check_pots() {
   if (p1c != p1p) {
     //double-check jumpy pots
     if (p1c == analogRead(POT1_PIN)) {
-      p1 = p1c;
-      p1p = p1c;
-      p1 = map(p1, 0, 1023, pot_max, pot_min);
+      p1 = map(p1c, 0, 1023, pot_max, pot_min);
       if (p1 > pot_slack) {
+        if (p1c > (p1p + pot_slack) || p1c < (p1p - pot_slack)) {
+          inactivity_set = 0;
+        }
+        p1p = p1c;
         tm_data[6] = p1;
   
         if (debug4) {
@@ -570,10 +640,12 @@ void check_pots() {
   if (p2c != p2p) {
     //double-check jumpy pots
     if (p2c == analogRead(POT2_PIN)) {
-      p2 = p2c;
-      p2p = p2c;
-      p2 = map(p2, 0, 1023, pot_max, pot_min);
+      p2 = map(p2c, 0, 1023, pot_max, pot_min);
       if (p2 > pot_slack) {
+        if (p2c > (p2p + pot_slack) || p2c < (p2p - pot_slack)) {
+          inactivity_set = 0;
+        }
+        p2p = p2c;
         tm_data[7] = p2;
   
         if (debug4) {
@@ -611,10 +683,12 @@ void check_pots() {
   if (p3c != p3p) {
     //double-check jumpy pots
     if (p3c == analogRead(POT3_PIN)) {
-      p3 = p3c;
-      p3p = p3c;
-      p3 = map(p3, 0, 1023, pot_max, pot_min);
+      p3 = map(p3c, 0, 1023, pot_max, pot_min);
       if (p3 > pot_slack) {
+        if (p3c > (p3p + pot_slack) || p3c < (p3p - pot_slack)) {
+          inactivity_set = 0;
+        }
+        p3p = p3c;
         tm_data[8] = p3;
   
         if (debug4) {
@@ -652,10 +726,12 @@ void check_pots() {
   if (p4c != p4p) {
     //double-check jumpy pots
     if (p4c == analogRead(POT4_PIN)) {
-      p4 = p4c;
-      p4p = p4c;
-      p4 = map(p4, 0, 1023, pot_max, pot_min);
+      p4 = map(p4c, 0, 1023, pot_max, pot_min);
       if (p4 > pot_slack) {
+        if (p4c > (p4p + pot_slack) || p4c < (p4p - pot_slack)) {
+          inactivity_set = 0;
+        }
+        p4p = p4c;
         tm_data[9] = p4;
   
         if (debug4) {
@@ -692,82 +768,12 @@ void check_pots() {
 //  if (updis) update_display(1);
 }
 
-void update_display(int dis) {
-  if (dis == 1) {
-    display.clearDisplay();
-
-    display.setCursor(0, 16);
-    display.setTextSize(1);
-    display.print("P1");
-    display.setCursor(15, 16);
-    display.setTextSize(2);
-    display.print(per1);
-    display.print("%");
-    display.setCursor(67, 16);
-    display.setTextSize(1);
-    display.print("P2");
-    display.setCursor(79, 16);
-    display.setTextSize(2);
-    display.print(per2);
-    display.print("%");
-
-    display.setCursor(0, 40);
-    display.setTextSize(1);
-    display.print("P3");
-    display.setCursor(15, 40);
-    display.setTextSize(2);
-    display.print(per3);
-    display.print("%");
-    display.setCursor(67, 40);
-    display.setTextSize(1);
-    display.print("P4");
-    display.setCursor(79, 40);
-    display.setTextSize(2);
-    display.print(per4);
-    display.print("%");
-
-    display.display();
-  } else {
-    display.clearDisplay();
-
-    display.setCursor(0, 16);
-    display.setTextSize(1);
-    display.print("SF");
-    display.setCursor(15, 16);
-    display.setTextSize(2);
-    display.print(float(float(rc_data[4]) / 100));
-    display.setCursor(67, 16);
-    display.setTextSize(1);
-    display.print("SP");
-    display.setCursor(79, 16);
-    display.setTextSize(2);
-    display.print(rc_data[1]);
-
-    display.setCursor(0, 40);
-    display.setTextSize(1);
-    display.print("VO");
-    display.setCursor(15, 40);
-    display.setTextSize(2);
-    display.print(rc_data[2]);
-    display.setCursor(67, 40);
-    display.setTextSize(1);
-    display.print("MS");
-    display.setCursor(79, 40);
-    display.setTextSize(2);
-    display.print(rc_data[3]);
-
-    display.display();
-
-    lastDisplayUpdate = millis();
-  }
-
-}
-
 void check_buttons() {
   int b1c = digitalRead(BTN1_PIN);
   if (b1c != b1p) {
     b1 = b1c;
     b1p = b1c;
+    inactivity_set = 0;
     tm_data[0] = b1;
 
     if (b1) {
@@ -789,6 +795,7 @@ void check_buttons() {
   if (b2c != b2p) {
     b2 = b2c;
     b2p = b2c;
+    inactivity_set = 0;
     tm_data[1] = b2;
 
     if (b2) {
@@ -810,6 +817,7 @@ void check_buttons() {
   if (b3c != b3p) {
     b3 = b3c;
     b3p = b3c;
+    inactivity_set = 0;
     tm_data[2] = b3;
 
     if (b3) {
@@ -831,6 +839,7 @@ void check_buttons() {
   if (b4c != b4p) {
     b4 = b4c;
     b4p = b4c;
+    inactivity_set = 0;
     tm_data[3] = b4;
 
     if (b4) {
@@ -853,6 +862,7 @@ void check_buttons() {
   if (s1c != s1p) {
     s1 = s1c;
     s1p = s1c;
+    inactivity_set = 0;
     tm_data[4] = s1;
 
     if (debug4) {
@@ -871,6 +881,7 @@ void check_buttons() {
       pattern = 9;
       pattern_cnt = 1;
       pattern_int = 10;
+      update_display(3);
     }
   }
 
@@ -878,6 +889,7 @@ void check_buttons() {
   if (s2c != s2p) {
     s2 = s2c;
     s2p = s2c;
+    inactivity_set = 0;
     tm_data[5] = s2;
 
     if (debug4) {
@@ -912,6 +924,7 @@ void check_joysticks() {
     if (rjx < jstick_center[1] && rjx > -jstick_center[1]) {
       rjx = 0;
     }
+//    inactivity_set = 0;
     tm_data[12] = rjx;
 
     if (debug4) {
@@ -935,6 +948,7 @@ void check_joysticks() {
     if (ljx < jstick_center[1] && ljx > -jstick_center[1]) {
       ljx = 0;
     }
+//    inactivity_set = 0;
     tm_data[10] = ljx;
 
     if (debug4) {
@@ -954,11 +968,12 @@ void check_joysticks() {
     }
   }
 
-  int rjy = map(analogRead(RJY_PIN), rj_min, rj_max, j_min, j_max);
+  int rjy = map(analogRead(RJY_PIN), rj_min, rj_max, j_max, j_min);
   if (rjy != tm_data[13]) {
     if (rjy < jstick_center[1] && rjy > -jstick_center[1]) {
       rjy = 0;
     }
+//    inactivity_set = 0;
     tm_data[13] = rjy;
 
     if (debug4) {
@@ -977,11 +992,12 @@ void check_joysticks() {
     }
   }
 
-  int ljy = map(analogRead(LJY_PIN), lj_min, lj_max, j_min, j_max);
+  int ljy = map(analogRead(LJY_PIN), lj_min, lj_max, j_max, j_min);
   if (ljy != tm_data[11]) {
     if (ljy < jstick_center[1] && ljy > -jstick_center[1]) {
       ljy = 0;
     }
+//    inactivity_set = 0;
     tm_data[11] = ljy;
 
     if (debug4) {
@@ -1023,6 +1039,148 @@ void check_joysticks() {
    OLED Functions
    -------------------------------------------------------
 */
+
+void update_display(int dis) {
+  if (dis == 1) {
+    display.clearDisplay();
+
+    display.setCursor(0, 16);
+    display.setTextSize(1);
+    display.print("P1");
+    display.setCursor(15, 16);
+    display.setTextSize(2);
+    display.print(per1);
+    display.print("%");
+    display.setCursor(67, 16);
+    display.setTextSize(1);
+    display.print("P2");
+    display.setCursor(79, 16);
+    display.setTextSize(2);
+    display.print(per2);
+    display.print("%");
+
+    display.setCursor(0, 40);
+    display.setTextSize(1);
+    display.print("P3");
+    display.setCursor(15, 40);
+    display.setTextSize(2);
+    display.print(per3);
+    display.print("%");
+    display.setCursor(67, 40);
+    display.setTextSize(1);
+    display.print("P4");
+    display.setCursor(79, 40);
+    display.setTextSize(2);
+    display.print(per4);
+    display.print("%");
+
+    display.display();
+  } else if (dis == 2 && !inactivity_set) {
+    display.clearDisplay();
+
+    display.setCursor(0, 2);
+    display.setTextSize(1);
+    display.print("SP");
+    display.setCursor(15, 2);
+    display.setTextSize(2);
+    display.print(rc_data[1]);
+    display.setCursor(73, 2);
+    display.setTextSize(1);
+    display.print("MS");
+    display.setCursor(87, 2);
+    display.setTextSize(2);
+    display.print(rc_data[3]);
+
+    display.setCursor(0, 26);
+    display.setTextSize(1);
+    display.print("WF");
+    display.setCursor(12, 26);
+    display.setTextSize(2);
+    display.print(float(float(rc_data[4]) / 100));
+    display.setCursor(67, 26);
+    display.setTextSize(1);
+    display.print("WR");
+    display.setCursor(80, 26);
+    display.setTextSize(2);
+    display.print(float(float(rc_data[5]) / 100));
+
+    display.setCursor(0, 50);
+    display.setTextSize(1);
+    display.print("VO");
+    display.setCursor(15, 50);
+    display.setTextSize(2);
+    display.print(rc_data[2]);
+
+    display.setCursor(50, 50);
+    display.setTextSize(1);
+    display.print("MO");
+    display.setCursor(65, 50);
+    display.setTextSize(2);
+    display.print(rc_data[6]);
+
+    display.setCursor(90, 50);
+    display.setTextSize(1);
+    display.print("SM");
+    display.setCursor(105, 50);
+    display.setTextSize(2);
+    display.print(rc_data[7]);
+
+    display.display();
+
+    lastDisplayUpdate = millis();
+  } else if (dis == 3) {
+    byte mod = 1;
+    if (rc_data[6] < 5) {
+      mod = rc_data[6] + 1;
+    }
+    display2.clearDisplay();
+    display2.setCursor(55, 0);
+    display2.setTextSize(1);
+    display2.print("MODE ");
+    display2.print(mod);
+    display2.setTextSize(2);
+    switch (mod) {
+      case 1:
+        display2.setCursor(44, 9);
+        display2.print("March");
+        break;
+      case 2:
+        display2.setCursor(52, 9);
+        display2.print("Walk");
+        break;
+      case 3:
+        display2.setCursor(19, 9);
+        display2.print("Freestyle");
+        break;
+      case 4:
+        display2.setCursor(51, 9);
+        display2.print("Trot");
+        break;
+      case 5:
+        display2.setCursor(39, 9);
+        display2.print("Follow");
+        break;
+    }
+    display2.setCursor(40, 25);
+    display2.setTextSize(1);
+    display2.print("Press Start");
+    display2.display();
+
+    lastDisplayUpdate = millis();
+  } else if (dis == 4) {
+    display.clearDisplay();
+    display.setCursor(12, 4);
+    display.setTextSize(3);
+    display.print("Zzz...");
+    display.display();
+
+    display2.clearDisplay();
+
+    lastDisplayUpdate = millis();
+  }
+}
+
+
 void bfillcircle(int d, int cx, int cy, int r) {
   if (d == 2) {
     display2.fillCircle(cx, cy, r, SSD1306_BLACK);
@@ -1087,23 +1245,20 @@ void battery_check(byte bshow) {
   batt_voltage = sensorValue * (5 / 1023.00) * 1.55;     // Convert the reading values from 5v to 7.5V
   batt_voltage2 = ((float(rc_data[0]) * 2) / 10);
 
-Serial.print(rc_data[0]); Serial.println(" rc_data[0]");
-Serial.print(batt_voltage2); Serial.println(" batt_voltage2");
-
-    display2.clearDisplay();
-    display2.setTextSize(1);
-    display2.setCursor(14,0);
-    display2.print("Remote  ");
-    display2.setTextSize(2);
-    display2.print(batt_voltage);
-    display2.println("v");
-    display2.setTextSize(1);
-    display2.setCursor(14,18);
-    display2.print("Nova    ");
-    display2.setTextSize(2);
-    display2.print(batt_voltage2);
-    display2.println("v");
-    oled2_refresh();
+  display2.clearDisplay();
+  display2.setTextSize(1);
+  display2.setCursor(14,0);
+  display2.print("Remote  ");
+  display2.setTextSize(2);
+  display2.print(batt_voltage);
+  display2.println("v");
+  display2.setTextSize(1);
+  display2.setCursor(14,18);
+  display2.print("Nova  ");
+  display2.setTextSize(2);
+  display2.print(batt_voltage2);
+  display2.println("v");
+  oled2_refresh();
 
   if (debug) {
     Serial.print(batt_voltage); Serial.print(" volts ");

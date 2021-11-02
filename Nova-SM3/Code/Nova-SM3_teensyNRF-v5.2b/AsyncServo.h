@@ -1,14 +1,15 @@
 /*
+ * 
  *   NovaSM3 - a Spot-Mini Micro clone
  *   Version: 5.2
- *   Version Date: 2021-10-10
+ *   Version Date: 2021-10-26
  *   
  *   Author:  Chris Locke - cguweb@gmail.com
+ *   Nova's website:  https://novaspotmicro.com
  *   GitHub Project:  https://github.com/cguweb-com/Arduino-Projects/tree/main/Nova-SM3
- *   Thingiverse:  https://www.thingiverse.com/thing:4767006
- *   Instructables Project:  https://www.instructables.com/Nova-Spot-Micro-a-Spot-Mini-Clone/
  *   YouTube Playlist:  https://www.youtube.com/watch?v=00PkTcGWPvo&list=PLcOZNHwM_I2a3YZKf8FtUjJneKGXCfduk
- *   
+ *     
+ *     
  *   NOTE:
  *   while this is a "class", it does not follow the rules of writing classes,
  *   as it uses externally defined position data arrays and servo ramping parameters, 
@@ -17,6 +18,32 @@
  *   This code is currently still in development, and eventually will have these issues
  *   addressed, making it more globally and open-source friendly for use in other projects
  *   without all of the external dependencies.
+ *     
+ *   =============================================================
+ *     
+ *   Copyright (c) 2020-2021 Christopher M. Locke and others
+ *   Distributed under the terms of the MIT License. 
+ *   SPDX-License-Identifier: MIT
+ *   
+ *   Permission is hereby granted, free of charge, to any person obtaining
+ *   a copy of this software and associated documentation files (the
+ *   "Software"), to deal in the Software without restriction, including
+ *   without limitation the rights to use, copy, modify, merge, publish,
+ *   distribute, sublicense, and/or sell copies of the Software, and to
+ *   permit persons to whom the Software is furnished to do so, subject to
+ *   the following conditions:
+ *   
+ *   The above copyright notice and this permission notice shall be
+ *   included in all copies or substantial portions of the Software.
+ *   
+ *   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+ *   EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+ *   MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+ *   NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
+ *   LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+ *   OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+ *   WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+ *   
 */
 
 
