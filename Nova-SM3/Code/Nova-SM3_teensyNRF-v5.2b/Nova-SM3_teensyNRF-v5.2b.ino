@@ -21,6 +21,7 @@
  *      Activated code for volume control of MP3 player if enabled
  *      Fixed voltage divider / battery monitor equation
  *      Removed piezo buzzer and TONE support
+ *      Added MP3_PLAYER_TYPE setting for DFPlayer Mini and Mini Pro selection
  *
  *
  *   DEV NOTES:
@@ -105,6 +106,7 @@ byte mp3_active = 1;              //activate if mp3 player installed
 byte splash_active = 1;           //show all loading graphics & sounds
 byte quick_boot = 0;              //skip most loading graphics & sounds
 
+#define MP3_PLAYER_TYPE 1         //set to 1 for Mini Pro or to 0 for Mini
 
 //include supporting libraries
 #include <Wire.h>
@@ -112,8 +114,17 @@ byte quick_boot = 0;              //skip most loading graphics & sounds
 #include <T4_PowerButton.h>
 #include <SoftwareSerial.h>
 #include <SPI.h>
-#include <DFRobot_PLAY.h>
 #include <RF24.h>
+
+//MP3 Setup
+#if MP3_PLAYER_TYPE > 0
+  #include <DFRobot_PLAY.h>
+  DFRobot_PLAY DFPlayer;
+#else
+  #include <DFRobotDFPlayerMini.h>
+  DFRobotDFPlayerMini DFPlayer;
+#endif
+
 
 //Teensy 2nd i2c bus and onboard led
 #define SDA2_PIN 17
@@ -153,7 +164,6 @@ float ramp_spd = 5.00;            //default ramp speed multiplier
 //  1.saber 2.r2one 3.r2two 4.siren 5.chewy 6.radar 7.mariobro 8.laugh 9.what 10.nova 11.hello
 //  12.mode1 13.mode2 14.mode3 15.mode4 16.fon 17.foff 18.sustain 19.warn 20.danger 21.critical 22.halt
 //  23.fmodeon 24.fmodeoff 25.click1  
-DFRobot_PLAY DFPlayer;
 #define MP3_VOL_PIN A9
 unsigned int potInterval = 1000;
 unsigned long lastPotUpdate = 0;
@@ -468,21 +478,25 @@ void setup() {
   Wire1.setSCL(SCL2_PIN);
 
   if (mp3_active) {
-    softwareSerial.begin(115200);
+    #if MP3_PLAYER_TYPE > 0
+      softwareSerial.begin(115200);
+    #else
+      softwareSerial.begin(9600);
+    #endif
 
     if (DFPlayer.begin(softwareSerial)) {
       pinMode(MP3_VOL_PIN, INPUT);
       mp3_volume(sound_vol);
 
-      //MP3 Setup
-      //DFPlayer Mini Pro
-      DFPlayer.setPlayMode(DFPlayer.SINGLE);
-      DFPlayer.setPrompt(false);
-      DFPlayer.switchFunction(DFPlayer.MUSIC);
-      sounds_sd = DFPlayer.getTotalFile();
-      //DFPlayer Mini
-      //DFPlayer.EQ(DFPLAYER_EQ_ROCK);
-      //sounds_sd = DFPlayer.readFileCounts();  
+      #if MP3_PLAYER_TYPE > 0
+        DFPlayer.setPlayMode(DFPlayer.SINGLE);
+        DFPlayer.setPrompt(false);
+        DFPlayer.switchFunction(DFPlayer.MUSIC);
+        sounds_sd = DFPlayer.getTotalFile();
+      #else
+        DFPlayer.EQ(DFPLAYER_EQ_ROCK);
+        sounds_sd = DFPlayer.readFileCounts();  
+      #endif
     } else if (debug) {
       Serial.println("Connecting to DFPlayer Mini Pro failed!");
     }
@@ -1069,9 +1083,6 @@ Serial.print(sel2);
 Serial.print(" / ");
 Serial.println(sel2p);
 */      
-
-//  1.saber 2.r2one 3.r2two 4.siren 5.chewy 6.radar 7.mariobro 8.laugh 9.what 10.nova 11.hello
-//  12.mode1 13.mode2 14.mode3 15.mode4 16.fon 17.foff 18.sustain 19.warn 20.danger 21.critical 22.halt  
 
       //start button by mode
       if (sel2 && sel2 != sel2p) {
@@ -6297,7 +6308,7 @@ void powering_down(void) {
 void mp3_play(int track) {
 
   mp3_status = 1;
-//    DFPlayer.playFileNum(track);
+  #if MP3_PLAYER_TYPE > 0
     switch (track) {
       case 1: DFPlayer.playSpecFile("/MP3/0001.mp3"); break;
       case 2: DFPlayer.playSpecFile("/MP3/0002.mp3"); break;
@@ -6327,21 +6338,10 @@ void mp3_play(int track) {
       case 26: DFPlayer.playSpecFile("/MP3/0026.mp3"); break;
       case 27: DFPlayer.playSpecFile("/MP3/0027.mp3"); break;
     }
+  #else
+    DFPlayer.playMp3Folder(track);    
+  #endif
 }
-
-//DFPlayer Mini Pro
-/*
-void mp3_play(int track) {
-
-//check if currently playing, else wait
-
-//    Serial.print("playing sound: ");Serial.print(track);
-//    Serial.print("  state: ");Serial.print(DFPlayer.readState());
-    DFPlayer.playMp3Folder(track);
-
-//    Serial.print("  / ");Serial.println(DFPlayer.readState());
-}
-*/
 
 void mp3_volume(int vol) {
   int svol = 0;
@@ -6370,11 +6370,11 @@ void mp3_volume(int vol) {
   if (svol && sound_vol != sound_volp) {
     sound_volp = sound_vol;
 
-    //MP3 Setup
-    //DFPlayer Mini Pro
-    DFPlayer.setVol(sound_vol);
-    //DFPlayer Mini
-    //DFPlayer.volume(sound_vol);
+    #if MP3_PLAYER_TYPE > 0
+      DFPlayer.setVol(sound_vol);
+    #else
+      DFPlayer.volume(sound_vol);
+    #endif
     if (debug1) {
       Serial.print("set vol: ");
       Serial.println(sound_vol);
@@ -6384,18 +6384,17 @@ void mp3_volume(int vol) {
 
 //DEV: mp3 player queue system
 void check_mp3() {
-  //MP3 Setup
-  //DFPlayer Mini Pro
-  if (mp3_status && (DFPlayer.getCurTime() == DFPlayer.getTotalTime()) && DFPlayer.getFileName()) {
-    DFPlayer.pause();
-    mp3_status = 0;
-  }
-  
-  //DFPlayer Mini
-  //value = DFPlayer.readState();
-  //if (value == 2 || value == 0 || DFPlayer.available()) {
-  //  play_mp3_queue(DFPlayer.readType());
-  //}
+  #if MP3_PLAYER_TYPE > 0
+    if (mp3_status && (DFPlayer.getCurTime() == DFPlayer.getTotalTime()) && DFPlayer.getFileName()) {
+      DFPlayer.pause();
+      mp3_status = 0;
+    }
+  #else
+    value = DFPlayer.readState();
+    if (value == 2 || value == 0 || DFPlayer.available()) {
+      play_mp3_queue(DFPlayer.readType());
+    }
+  #endif
 
   lastMP3Update = millis();
 }
@@ -6412,26 +6411,23 @@ void add_to_mp3_queue(int track) {
 }
 
 void play_mp3_queue(uint8_t type) {
+
+  #if MP3_PLAYER_TYPE > 0
 //  Serial.print(F("type "));
 //  Serial.println(type);
-
-  //MP3 Setup
-  //DFPlayer Mini Pro
-  //
-  //DFPlayer Mini
-  /*
-  if (type == DFPlayerPlayFinished || type == 11) {
-    for (int i=0;i<5;i++) {
-      if (mp3_queue[i]) {
-        mp3_play(mp3_queue[i]);
-        Serial.print(F("play track "));Serial.println(mp3_queue[i]);
-        mp3_queue[i] = 0;
-        break;
-      }
-      if (i == 4) {
-        mp3_status = 0;
+  #else
+    if (type == DFPlayerPlayFinished || type == 11) {
+      for (int i=0;i<5;i++) {
+        if (mp3_queue[i]) {
+          mp3_play(mp3_queue[i]);
+          Serial.print(F("play track "));Serial.println(mp3_queue[i]);
+          mp3_queue[i] = 0;
+          break;
+        }
+        if (i == 4) {
+          mp3_status = 0;
+        }
       }
     }
-  }
-  */
+  #endif
 }
