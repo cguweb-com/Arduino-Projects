@@ -1,3 +1,5 @@
+
+
 /*
  * 
  *   NovaSM3 - a Spot-Mini Micro clone
@@ -6390,7 +6392,7 @@ void check_mp3() {
       mp3_status = 0;
     }
   #else
-    value = DFPlayer.readState();
+    int value = DFPlayer.readState();
     if (value == 2 || value == 0 || DFPlayer.available()) {
       play_mp3_queue(DFPlayer.readType());
     }
